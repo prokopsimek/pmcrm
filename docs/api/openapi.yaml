@@ -1,0 +1,554 @@
+openapi: 3.0.3
+info:
+  title: Personal Network CRM API
+  description: |
+    AI-powered SaaS platform API for managing personal business networks with intelligent
+    relationship insights and proactive networking recommendations.
+
+    # Authentication
+    All API endpoints require authentication via Bearer token in the Authorization header.
+
+    # Rate Limiting
+    - Authenticated users: 100 requests/minute
+    - AI endpoints: 10 requests/minute
+
+    # Base URLs
+    - Development: http://localhost:3000/api/v1
+    - Production: https://api.pmcrm.io/v1
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api-support@pmcrm.io
+    url: https://docs.pmcrm.io
+  license:
+    name: Proprietary
+    url: https://pmcrm.io/terms
+
+servers:
+  - url: https://api.pmcrm.io/v1
+    description: Production server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Contacts
+    description: Contact management operations
+  - name: Organizations
+    description: Organization management
+  - name: Interactions
+    description: Communication history tracking
+  - name: AI Recommendations
+    description: AI-powered networking insights
+  - name: Integrations
+    description: Third-party service integrations
+  - name: Users
+    description: User profile management
+  - name: Tags
+    description: Tag management
+
+security:
+  - BearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and receive access and refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: SecurePassword123!
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: Get a new access token using refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokens'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /contacts:
+    get:
+      tags:
+        - Contacts
+      summary: List contacts
+      description: Retrieve a paginated list of contacts with optional filtering
+      parameters:
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+        - name: search
+          in: query
+          description: Full-text search query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          description: Filter by tags (comma-separated)
+          schema:
+            type: string
+        - name: relationshipStrength[gte]
+          in: query
+          description: Minimum relationship strength
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+        - name: sort
+          in: query
+          description: Sort order (prefix with - for descending)
+          schema:
+            type: string
+            default: -lastContactDate
+            example: -lastContactDate,firstName
+      responses:
+        '200':
+          description: List of contacts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Contact'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags:
+        - Contacts
+      summary: Create contact
+      description: Create a new contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+      responses:
+        '201':
+          description: Contact created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /contacts/{id}:
+    get:
+      tags:
+        - Contacts
+      summary: Get contact
+      description: Retrieve contact details by ID
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Contact details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags:
+        - Contacts
+      summary: Update contact
+      description: Update contact information
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+      responses:
+        '200':
+          description: Contact updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Contact'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags:
+        - Contacts
+      summary: Delete contact
+      description: Soft delete a contact
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '204':
+          description: Contact deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /ai/recommendations:
+    get:
+      tags:
+        - AI Recommendations
+      summary: Get networking recommendations
+      description: Retrieve AI-powered recommendations for who to contact
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+            maximum: 50
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high]
+      responses:
+        '200':
+          description: List of recommendations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recommendations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recommendation'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /ai/message-generator:
+    post:
+      tags:
+        - AI Recommendations
+      summary: Generate personalized message
+      description: Generate AI-powered personalized outreach message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - contactId
+                - messageType
+              properties:
+                contactId:
+                  type: string
+                  format: uuid
+                messageType:
+                  type: string
+                  enum: [email, linkedin, whatsapp]
+                tone:
+                  type: string
+                  enum: [professional, friendly, casual]
+                  default: professional
+                context:
+                  type: string
+                  description: Additional context for message generation
+      responses:
+        '200':
+          description: Generated message
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  subject:
+                    type: string
+                  body:
+                    type: string
+                  talkingPoints:
+                    type: array
+                    items:
+                      type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      description: Resource UUID
+      schema:
+        type: string
+        format: uuid
+
+    LimitParam:
+      name: limit
+      in: query
+      description: Number of items to return
+      schema:
+        type: integer
+        default: 50
+        maximum: 100
+
+    CursorParam:
+      name: cursor
+      in: query
+      description: Pagination cursor
+      schema:
+        type: string
+
+  schemas:
+    Contact:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        linkedinUrl:
+          type: string
+          format: uri
+        organizationId:
+          type: string
+          format: uuid
+        relationshipStrength:
+          type: integer
+          minimum: 1
+          maximum: 10
+        lastContactDate:
+          type: string
+          format: date
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ContactInput:
+      type: object
+      required:
+        - firstName
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        lastName:
+          type: string
+          maxLength: 255
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        linkedinUrl:
+          type: string
+          format: uri
+        organizationId:
+          type: string
+          format: uuid
+        tags:
+          type: array
+          items:
+            type: string
+        customFields:
+          type: object
+          additionalProperties: true
+
+    Recommendation:
+      type: object
+      properties:
+        id:
+          type: string
+        contactId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [reconnect, follow_up, introduction, event_trigger]
+        priority:
+          type: string
+          enum: [low, medium, high]
+        title:
+          type: string
+        description:
+          type: string
+        suggestedAction:
+          type: string
+        triggers:
+          type: array
+          items:
+            type: object
+        confidenceScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        messageTemplate:
+          type: object
+          properties:
+            subject:
+              type: string
+            body:
+              type: string
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    AuthTokens:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+        tokenType:
+          type: string
+          default: Bearer
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            statusCode:
+              type: integer
+            timestamp:
+              type: string
+              format: date-time
+            requestId:
+              type: string
+            details:
+              type: object
+
+  responses:
+    UnauthorizedError:
+      description: Unauthorized - Invalid or missing authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    RateLimitError:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer

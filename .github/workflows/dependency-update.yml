@@ -1,0 +1,63 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Run every Monday at 3 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update dependencies
+        run: |
+          npm update
+          npm audit fix --audit-level=moderate
+
+      - name: Run tests
+        run: npm run test:ci
+        continue-on-error: true
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore(deps): update dependencies'
+          title: 'chore(deps): Weekly dependency updates'
+          body: |
+            Automated dependency updates
+
+            ## Changes
+            - Updated npm dependencies
+            - Applied security fixes with `npm audit fix`
+
+            ## Testing
+            - [ ] All tests pass
+            - [ ] Manual testing completed
+
+            ## Notes
+            Please review the changes and test thoroughly before merging.
+          branch: chore/dependency-updates
+          delete-branch: true
+          labels: |
+            dependencies
+            automated

@@ -1,0 +1,269 @@
+{
+  "dashboard": {
+    "title": "Personal Network CRM - Performance Dashboard",
+    "tags": ["pmcrm", "performance", "api"],
+    "timezone": "browser",
+    "schemaVersion": 16,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "type": "graph",
+        "title": "API Response Time (P95/P99)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+            "legendFormat": "P95 - {{route}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+            "legendFormat": "P99 - {{route}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "ms", "label": "Response Time" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [200], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "frequency": "1m",
+          "handler": 1,
+          "name": "API P95 Response Time Alert",
+          "noDataState": "no_data",
+          "notifications": []
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "type": "graph",
+        "title": "Requests per Second",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total[5m])) by (status)",
+            "legendFormat": "{{status}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "reqps", "label": "Requests/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 3,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+        "type": "graph",
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) * 100",
+            "legendFormat": "Error Rate %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "Error Rate" },
+          { "format": "short" }
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": { "params": [1], "type": "gt" },
+              "operator": { "type": "and" },
+              "query": { "params": ["A", "5m", "now"] },
+              "reducer": { "params": [], "type": "avg" },
+              "type": "query"
+            }
+          ],
+          "name": "High Error Rate Alert"
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+        "type": "graph",
+        "title": "Cache Hit Rate",
+        "targets": [
+          {
+            "expr": "sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) * 100",
+            "legendFormat": "Hit Rate %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "Hit Rate" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 5,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "type": "graph",
+        "title": "Database Query Latency",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(db_query_duration_seconds_bucket[5m])) by (le, operation))",
+            "legendFormat": "P95 - {{operation}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(db_query_duration_seconds_bucket[5m])) by (le, operation))",
+            "legendFormat": "P99 - {{operation}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "ms", "label": "Query Time" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 6,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "type": "graph",
+        "title": "Active Database Connections",
+        "targets": [
+          {
+            "expr": "pg_stat_database_numbackends{datname=\"pmcrm\"}",
+            "legendFormat": "Active Connections",
+            "refId": "A"
+          },
+          {
+            "expr": "pgbouncer_pools_cl_active",
+            "legendFormat": "PgBouncer Active",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "short", "label": "Connections" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 7,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "type": "graph",
+        "title": "Memory Usage",
+        "targets": [
+          {
+            "expr": "process_resident_memory_bytes / 1024 / 1024",
+            "legendFormat": "RSS (MB)",
+            "refId": "A"
+          },
+          {
+            "expr": "nodejs_heap_size_used_bytes / 1024 / 1024",
+            "legendFormat": "Heap Used (MB)",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "decmbytes", "label": "Memory" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 8,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "type": "graph",
+        "title": "CPU Usage",
+        "targets": [
+          {
+            "expr": "rate(process_cpu_seconds_total[5m]) * 100",
+            "legendFormat": "CPU %",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "percent", "label": "CPU Usage" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 9,
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+        "type": "graph",
+        "title": "Redis Operations",
+        "targets": [
+          {
+            "expr": "rate(redis_commands_processed_total[5m])",
+            "legendFormat": "Commands/sec",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          { "format": "ops", "label": "Operations/sec" },
+          { "format": "short" }
+        ]
+      },
+      {
+        "id": 10,
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+        "type": "graph",
+        "title": "Network I/O",
+        "targets": [
+          {
+            "expr": "rate(node_network_receive_bytes_total[5m])",
+            "legendFormat": "Receive",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(node_network_transmit_bytes_total[5m])",
+            "legendFormat": "Transmit",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          { "format": "Bps", "label": "Bytes/sec" },
+          { "format": "short" }
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus",
+          "current": { "value": "Prometheus", "text": "Prometheus" }
+        },
+        {
+          "name": "environment",
+          "type": "query",
+          "query": "label_values(environment)",
+          "current": { "value": "production", "text": "production" }
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "iconColor": "red",
+          "name": "Alerts",
+          "tagKeys": "alertname",
+          "titleFormat": "Alert: {{alertname}}"
+        }
+      ]
+    },
+    "time": { "from": "now-6h", "to": "now" },
+    "timepicker": {
+      "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+    }
+  }
+}

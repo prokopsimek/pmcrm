@@ -1,0 +1,30 @@
+FROM pgbouncer/pgbouncer:latest
+
+# Install additional utilities
+USER root
+RUN apk add --no-cache \
+    postgresql-client \
+    curl \
+    bash
+
+# Create necessary directories
+RUN mkdir -p /var/log/pgbouncer /var/run/pgbouncer /etc/pgbouncer && \
+    chown -R pgbouncer:pgbouncer /var/log/pgbouncer /var/run/pgbouncer /etc/pgbouncer
+
+# Copy configuration files
+COPY pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+COPY userlist.txt /etc/pgbouncer/userlist.txt
+
+# Set permissions
+RUN chmod 640 /etc/pgbouncer/userlist.txt && \
+    chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD psql -h localhost -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS;" || exit 1
+
+USER pgbouncer
+
+EXPOSE 6432
+
+CMD ["/etc/pgbouncer/pgbouncer.ini"]

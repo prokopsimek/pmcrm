@@ -1,0 +1,9 @@
+;; PgBouncer userlist
+;; Format: "username" "password"
+;; Use md5 hashed passwords for security
+;; Generate md5 hash: echo -n "passwordusername" | md5sum
+;; Then prepend with "md5"
+
+"postgres" "CHANGE_THIS_PASSWORD"
+"pmcrm_app" "CHANGE_THIS_PASSWORD"
+"pmcrm_readonly" "CHANGE_THIS_PASSWORD"

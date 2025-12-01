@@ -1,0 +1,13 @@
+# Example Terraform Variables File
+# Copy this file to terraform.tfvars and fill in your values
+
+aws_region  = "us-east-1"
+environment = "staging"
+
+# Database Configuration
+db_password              = "CHANGE_ME_STRONG_PASSWORD"
+db_backup_retention_period = 7
+
+# For production, use larger instance types
+# db_instance_class = "db.r6g.large"
+# redis_node_type   = "cache.r6g.large"

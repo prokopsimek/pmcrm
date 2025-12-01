@@ -1,0 +1,32 @@
+{
+  "recommendations": [
+    // Essential
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "ms-vscode.vscode-typescript-next",
+
+    // Code Quality
+    "sonarsource.sonarlint-vscode",
+    "streetsidesoftware.code-spell-checker",
+
+    // TypeScript
+    "yoavbls.pretty-ts-errors",
+    "usernamehw.errorlens",
+
+    // Productivity
+    "eamodio.gitlens",
+    "ms-azuretools.vscode-docker",
+    "bradlc.vscode-tailwindcss",
+
+    // Testing
+    "firsttris.vscode-jest-runner",
+
+    // Database
+    "prisma.prisma",
+
+    // Markdown
+    "yzhang.markdown-all-in-one",
+    "davidanson.vscode-markdownlint"
+  ],
+  "unwantedRecommendations": []
+}

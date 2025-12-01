@@ -1,0 +1,938 @@
+// Personal Network CRM - Database Schema
+// Modular Monolith Pattern with Clean Separation of Concerns
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearchPostgres", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ============================================================================
+// USER MODULE
+// ============================================================================
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  emailVerified   Boolean   @default(false)
+  name            String?
+  firstName       String?
+  lastName        String?
+  image           String?
+  avatar          String? // Legacy field - use image for better-auth
+  role            UserRole  @default(USER)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Better-auth relations
+  sessions        Session[]
+  accounts        Account[]
+
+  // Legacy relations (deprecated - will be removed after migration)
+  refreshTokens   RefreshToken[]
+
+  // Application relations
+  contacts             Contact[]
+  notifications        Notification[]
+  searchHistory        SearchHistory[]
+  integrations         Integration[]
+  activityLogs         ActivityLog[]
+  contactActivities    ContactActivity[]
+  onboardingState      OnboardingState?
+  subscription         Subscription?
+  calendarSyncConfig   CalendarSyncConfig? @relation("UserCalendarSync")
+  emailSyncConfig      EmailSyncConfig?    @relation("UserEmailSync")
+  interactions         Interaction[]       @relation("UserInteractions")
+  companies            Company[]           @relation("UserCompanies")
+  tags                 Tag[]               @relation("UserTags")
+  contactTags          ContactTag[]        @relation("UserContactTags")
+  generatedIcebreakers GeneratedIcebreaker[] @relation("UserIcebreakers")
+  notes                Note[]              @relation("UserNotes")
+
+  // Better-auth organization plugin relations
+  organizationMembers  Member[]            @relation("UserOrgMembers")
+  orgInvitations       Invitation[]        @relation("UserOrgInvitations")
+
+  @@index([email])
+  @@map("user")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+}
+
+// Legacy RefreshToken - deprecated, use Session instead
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+// ============================================================================
+// BETTER-AUTH TABLES
+// ============================================================================
+
+// Session table for better-auth
+model Session {
+  id                     String    @id @default(cuid())
+  expiresAt              DateTime
+  token                  String    @unique
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  ipAddress              String?
+  userAgent              String?
+  userId                 String
+  // Better-auth organization plugin fields
+  activeOrganizationId   String?
+
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganization Organization? @relation("SessionActiveOrg", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([token])
+  @@index([activeOrganizationId])
+  @@map("session")
+}
+
+// Account table for OAuth providers (better-auth)
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([providerId, accountId])
+  @@map("account")
+}
+
+// Verification table for email verification and password reset
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ============================================================================
+// BETTER-AUTH ORGANIZATION PLUGIN TABLES
+// ============================================================================
+
+// Organization table for better-auth organization plugin
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logo      String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  members     Member[]
+  invitations Invitation[]
+  sessions    Session[]       @relation("SessionActiveOrg")
+
+  @@index([slug])
+  @@map("organization")
+}
+
+// Member table for organization membership
+model Member {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           String   @default("member") // 'owner', 'admin', 'member'
+  createdAt      DateTime @default(now())
+
+  user         User         @relation("UserOrgMembers", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([role])
+  @@map("member")
+}
+
+// Invitation table for organization invitations
+model Invitation {
+  id             String             @id @default(cuid())
+  email          String
+  inviterId      String
+  organizationId String
+  role           String             @default("member") // 'owner', 'admin', 'member'
+  status         InvitationStatus   @default(pending)
+  expiresAt      DateTime
+  createdAt      DateTime           @default(now())
+
+  inviter      User         @relation("UserOrgInvitations", fields: [inviterId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([inviterId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("invitation")
+}
+
+enum InvitationStatus {
+  pending
+  accepted
+  rejected
+  canceled
+}
+
+// ============================================================================
+// CONTACT MODULE
+// ============================================================================
+
+model Contact {
+  id           String        @id @default(cuid())
+  userId       String
+  firstName    String
+  lastName     String?
+  email        String?
+  phone        String?
+  company      String?
+  position     String?
+  location     String?
+  notes        String?
+  tags         String[]      @default([])
+  source       ContactSource @default(MANUAL)
+  lastContact  DateTime?
+  frequency    Int           @default(0) // Interaction frequency score
+  importance   Int           @default(0) // AI-calculated importance score
+  metadata     Json?
+  deletedAt    DateTime? // Soft delete timestamp
+  searchVector String?       @map("search_vector") // Full-text search vector
+
+  // US-060: Semantic Search with pgvector
+  embeddingVector    Unsupported("vector(1536)")? @map("embedding_vector") // OpenAI text-embedding-ada-002 (1536 dimensions)
+  embeddingUpdatedAt DateTime?                    @map("embedding_updated_at") // Track when embedding was generated
+
+  // US-013: LinkedIn Enrichment fields
+  linkedinUrl          String?
+  enrichmentData       Json? // Cached LinkedIn data (profile, positions, skills, education)
+  enrichedAt           DateTime? // Last enrichment timestamp
+  enrichmentProvider   String? // 'proxycurl', 'apollo'
+  enrichmentLastUpdate DateTime? // Deprecated - use enrichedAt
+  enrichmentSource     String? // Deprecated - use enrichmentProvider
+
+  // US-012: Contact Frequency
+  contactFrequencyDays Int? // Desired contact frequency in days
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activities              ContactActivity[]
+  reminders               Reminder[]
+  aiInsights              AIInsight[]
+  aiSummaries             ContactAISummary[]       @relation("ContactAISummaries")
+  emailThreads            EmailThread[]            @relation("ContactEmailThreads")
+  integrationLinks        IntegrationLink[]
+  networkConnections      NetworkConnection[]      @relation("ContactConnections")
+  connectedFrom           NetworkConnection[]      @relation("ConnectedContacts")
+  interactionParticipants InteractionParticipant[] @relation("ContactInteractions")
+  employments             ContactEmployment[]      @relation("ContactEmployments")
+  contactTags             ContactTag[]             @relation("ContactTags")
+  enrichmentLogs          EnrichmentLog[]
+  generatedIcebreakers    GeneratedIcebreaker[]    @relation("ContactIcebreakers")
+  contactNotes            Note[]                   @relation("ContactNotes")
+
+  @@unique([userId, email])
+  @@index([userId])
+  @@index([email])
+  @@index([company])
+  @@index([tags])
+  @@index([linkedinUrl])
+  @@index([enrichedAt])
+  @@map("contacts")
+}
+
+enum ContactSource {
+  MANUAL
+  IMPORT
+  LINKEDIN
+  EMAIL
+  GOOGLE_CONTACTS
+  MICROSOFT_CONTACTS
+  API
+}
+
+model ContactActivity {
+  id          String       @id @default(cuid())
+  contactId   String
+  userId      String
+  type        ActivityType
+  title       String
+  description String?
+  metadata    Json?
+  occurredAt  DateTime     @default(now())
+  createdAt   DateTime     @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([userId])
+  @@index([occurredAt])
+  @@map("contact_activities")
+}
+
+enum ActivityType {
+  EMAIL
+  CALL
+  MEETING
+  NOTE
+  LINKEDIN_MESSAGE
+  LINKEDIN_CONNECTION
+  TASK_COMPLETED
+  REMINDER_TRIGGERED
+  OTHER
+}
+
+model Reminder {
+  id            String         @id @default(cuid())
+  contactId     String
+  title         String
+  message       String?
+  scheduledFor  DateTime
+  dueAt         DateTime? // Calculated due date based on frequency
+  frequencyDays Int? // Frequency in days (7=weekly, 30=monthly, 90=quarterly, null=one-time)
+  priority      Int            @default(0) // Priority score for sorting (0-100)
+  status        ReminderStatus @default(PENDING)
+  snoozedUntil  DateTime? // Snooze until specific date
+  completedAt   DateTime? // When marked as done
+  notifiedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([scheduledFor])
+  @@index([dueAt])
+  @@index([status])
+  @@index([priority])
+  @@map("reminders")
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  DISMISSED
+  SNOOZED
+  COMPLETED
+}
+
+// ============================================================================
+// NETWORK CONNECTIONS
+// ============================================================================
+
+model NetworkConnection {
+  id            String   @id @default(cuid())
+  contactId     String
+  connectedToId String
+  relationship  String?
+  strength      Int      @default(0) // 0-100 connection strength
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  contact     Contact @relation("ContactConnections", fields: [contactId], references: [id], onDelete: Cascade)
+  connectedTo Contact @relation("ConnectedContacts", fields: [connectedToId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, connectedToId])
+  @@index([contactId])
+  @@index([connectedToId])
+  @@map("network_connections")
+}
+
+// ============================================================================
+// AI MODULE
+// ============================================================================
+
+model AIInsight {
+  id         String      @id @default(cuid())
+  contactId  String
+  type       InsightType
+  title      String
+  content    String
+  confidence Float       @default(0.0) // 0.0-1.0
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+
+  contact  Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  feedback RecommendationFeedback[]
+
+  @@index([contactId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("ai_insights")
+}
+
+enum InsightType {
+  RELATIONSHIP_STRENGTH
+  CONTACT_RECOMMENDATION
+  INTERACTION_PATTERN
+  IMPORTANCE_CHANGE
+  NETWORKING_OPPORTUNITY
+  FOLLOW_UP_SUGGESTION
+}
+
+model RecommendationFeedback {
+  id               String   @id @default(cuid())
+  recommendationId String
+  userId           String
+  isHelpful        Boolean
+  comment          String?
+  createdAt        DateTime @default(now())
+
+  recommendation AIInsight @relation(fields: [recommendationId], references: [id], onDelete: Cascade)
+
+  @@index([recommendationId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("recommendation_feedback")
+}
+
+// Contact AI Summary - cached AI-generated summaries and recommendations
+model ContactAISummary {
+  id             String           @id @default(cuid())
+  contactId      String
+  summaryType    AISummaryType
+  content        String           @db.Text
+  recommendations Json?           // Array of AI-generated action items
+  generatedAt    DateTime         @default(now())
+  emailsIncluded Int              @default(0) // Number of emails analyzed
+  lastEmailDate  DateTime?        // Date of most recent email included
+  expiresAt      DateTime?        // When summary should be regenerated
+  metadata       Json?            // Additional context (model used, tokens, etc.)
+
+  contact Contact @relation("ContactAISummaries", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, summaryType])
+  @@index([contactId])
+  @@index([summaryType])
+  @@index([generatedAt])
+  @@index([expiresAt])
+  @@map("contact_ai_summaries")
+}
+
+enum AISummaryType {
+  TIMELINE           // Timeline of communication topics
+  RECOMMENDATIONS    // Next steps recommendations
+  RELATIONSHIP       // Relationship analysis
+}
+
+// US-051: AI Icebreaker Message Generation
+model GeneratedIcebreaker {
+  id             String    @id @default(cuid())
+  userId         String
+  contactId      String
+  channel        String    // email, linkedin, whatsapp
+  tone           String    // professional, friendly, casual
+  triggerEvent   String?
+  variations     Json      // Array of MessageVariation
+  selected       Json?     // Selected variation
+  edited         Boolean   @default(false)
+  editedContent  String?
+  feedback       String?   // helpful, not_helpful, needs_improvement
+  sent           Boolean   @default(false)
+  sentAt         DateTime?
+  llmProvider    String    // claude, gpt4
+  modelVersion   String
+  promptVersion  String
+  tokensUsed     Int
+  costUsd        Decimal   @db.Decimal(10, 6)
+  contextData    Json?
+  generationTime Int       // milliseconds
+  createdAt      DateTime  @default(now())
+
+  user    User    @relation("UserIcebreakers", fields: [userId], references: [id], onDelete: Cascade)
+  contact Contact @relation("ContactIcebreakers", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([contactId])
+  @@index([createdAt])
+  @@map("generated_icebreakers")
+}
+
+// Email Thread - cached email data from Gmail/Outlook
+model EmailThread {
+  id           String    @id @default(cuid())
+  contactId    String
+  threadId     String    // Gmail/Outlook thread ID
+  subject      String?
+  snippet      String?   @db.Text
+  body         String?   @db.Text
+  direction    EmailDirection
+  occurredAt   DateTime
+  externalId   String    // Gmail message ID
+  source       String    @default("gmail") // gmail, outlook
+  metadata     Json?     // Headers, attachments info, etc.
+  createdAt    DateTime  @default(now())
+
+  contact Contact @relation("ContactEmailThreads", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, externalId])
+  @@index([contactId])
+  @@index([threadId])
+  @@index([occurredAt])
+  @@index([source])
+  @@map("email_threads")
+}
+
+enum EmailDirection {
+  INBOUND   // Email received from contact
+  OUTBOUND  // Email sent to contact
+}
+
+// ============================================================================
+// INTEGRATION MODULE
+// ============================================================================
+
+model Integration {
+  id           String          @id @default(cuid())
+  userId       String
+  type         IntegrationType
+  name         String
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  metadata     Json?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  links IntegrationLink[]
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([type])
+  @@map("integrations")
+}
+
+enum IntegrationType {
+  GMAIL
+  GOOGLE_CALENDAR
+  GOOGLE_CONTACTS
+  MICROSOFT_CONTACTS
+  LINKEDIN
+  OUTLOOK
+  SLACK
+  SALESFORCE
+  HUBSPOT
+}
+
+model IntegrationLink {
+  id            String   @id @default(cuid())
+  integrationId String
+  contactId     String
+  externalId    String
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  contact     Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, externalId])
+  @@index([integrationId])
+  @@index([contactId])
+  @@map("integration_links")
+}
+
+// ============================================================================
+// NOTIFICATION MODULE
+// ============================================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  REMINDER
+  INSIGHT
+  INTEGRATION_SYNC
+  SYSTEM
+  SUGGESTION
+}
+
+// ============================================================================
+// SEARCH MODULE
+// ============================================================================
+
+model SearchHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  query       String
+  filters     Json?
+  resultCount Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("search_history")
+}
+
+// ============================================================================
+// SYSTEM & LOGGING
+// ============================================================================
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+
+// ============================================================================
+// ONBOARDING MODULE (US-001)
+// ============================================================================
+
+model OnboardingState {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  currentStep    String // 'profile', 'integrations', 'import_contacts'
+  completedSteps String[]  @default([])
+  isCompleted    Boolean   @default(false)
+  completedAt    DateTime?
+  metadata       Json?     @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isCompleted])
+  @@map("onboarding_states")
+}
+
+// ============================================================================
+// SUBSCRIPTION MODULE (US-001)
+// ============================================================================
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  plan               SubscriptionPlan   @default(TRIAL)
+  status             SubscriptionStatus @default(ACTIVE)
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  paymentMethodId    String?
+  metadata           Json?              @default("{}")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([plan])
+  @@map("subscriptions")
+}
+
+enum SubscriptionPlan {
+  TRIAL
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+}
+
+// ============================================================================
+// ENRICHMENT MODULE (US-013)
+// ============================================================================
+
+model EnrichmentLog {
+  id           String   @id @default(cuid())
+  contactId    String
+  provider     String // 'proxycurl', 'apollo'
+  cost         Decimal  @default(0) @db.Decimal(10, 4) // Track API costs
+  success      Boolean
+  errorMessage String?
+  metadata     Json? // Request/response metadata
+  createdAt    DateTime @default(now())
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([provider])
+  @@index([success])
+  @@index([createdAt])
+  @@map("enrichment_logs")
+}
+
+
+// ============================================================================
+// CALENDAR SYNC MODULE (US-031)
+// ============================================================================
+
+// Calendar sync configuration
+model CalendarSyncConfig {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  googleCalendarId  String?   @default("primary")
+  outlookCalendarId String?
+  syncEnabled       Boolean   @default(true)
+  syncToken         String? // For incremental sync
+  lastSyncAt        DateTime?
+  metadata          Json?     @default("{}")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation("UserCalendarSync", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([syncEnabled])
+  @@map("calendar_sync_configs")
+}
+
+// ============================================================================
+// EMAIL SYNC MODULE (US-030)
+// ============================================================================
+
+// Email sync configuration
+model EmailSyncConfig {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  gmailEnabled    Boolean   @default(false)
+  outlookEnabled  Boolean   @default(false)
+  privacyMode     Boolean   @default(true) // true = metadata only, false = full content
+  syncEnabled     Boolean   @default(true)
+  excludedEmails  String[]  @default([]) // Emails to exclude from sync
+  excludedDomains String[]  @default([]) // Domains to exclude from sync
+  syncToken       String? // For incremental sync (Gmail historyId)
+  lastGmailSync   DateTime?
+  lastOutlookSync DateTime?
+  metadata        Json?     @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation("UserEmailSync", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([syncEnabled])
+  @@index([gmailEnabled])
+  @@map("email_sync_configs")
+}
+
+// Interactions (meetings, calls, emails, etc.)
+model Interaction {
+  id              String   @id @default(cuid())
+  userId          String
+  interactionType String // 'meeting', 'call', 'email', 'note'
+  subject         String?
+  summary         String?  @db.Text // Meeting notes
+  occurredAt      DateTime
+  externalId      String? // Calendar event ID
+  externalSource  String? // 'google_calendar', 'outlook_calendar'
+  meetingData     Json? // Event metadata
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user         User                     @relation("UserInteractions", fields: [userId], references: [id], onDelete: Cascade)
+  participants InteractionParticipant[]
+
+  @@unique([userId, externalId, externalSource])
+  @@index([userId])
+  @@index([interactionType])
+  @@index([occurredAt])
+  @@index([externalId])
+  @@index([externalSource])
+  @@map("interactions")
+}
+
+// Participants in an interaction
+model InteractionParticipant {
+  id            String   @id @default(cuid())
+  interactionId String
+  contactId     String
+  role          String   @default("attendee") // 'organizer', 'attendee'
+  createdAt     DateTime @default(now())
+
+  interaction Interaction @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+  contact     Contact     @relation("ContactInteractions", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([interactionId, contactId])
+  @@index([interactionId])
+  @@index([contactId])
+  @@map("interaction_participants")
+}
+
+// Companies (for contact employment tracking - where contacts work)
+model Company {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  domain    String?
+  logoUrl   String?
+  website   String?
+  industry  String?
+  size      String?
+  metadata  Json?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user               User                @relation("UserCompanies", fields: [userId], references: [id], onDelete: Cascade)
+  contactEmployments ContactEmployment[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([domain])
+  @@index([deletedAt])
+  @@map("companies")
+}
+
+// Contact employment history (where contacts work)
+model ContactEmployment {
+  id        String    @id @default(cuid())
+  contactId String
+  companyId String
+  title     String?
+  department String?
+  startDate DateTime?
+  endDate   DateTime?
+  isCurrent Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  contact Contact @relation("ContactEmployments", fields: [contactId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([companyId])
+  @@index([isCurrent])
+  @@map("contact_employments")
+}
+
+// Tags for contacts
+model Tag {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user        User         @relation("UserTags", fields: [userId], references: [id], onDelete: Cascade)
+  contactTags ContactTag[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("tags")
+}
+
+// Contact-Tag relationship
+model ContactTag {
+  id        String   @id @default(cuid())
+  contactId String
+  tagId     String
+  userId    String
+  createdAt DateTime @default(now())
+
+  contact Contact @relation("ContactTags", fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserContactTags", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+  @@index([userId])
+  @@map("contact_tags")
+}
+
+// ============================================================================
+// NOTES MODULE (US-034)
+// ============================================================================
+
+// Note model for manual notes on contacts
+model Note {
+  id        String   @id @default(cuid())
+  contactId String
+  userId    String
+  content   String   @db.Text // HTML content from rich text editor
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contact Contact @relation("ContactNotes", fields: [contactId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserNotes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([userId])
+  @@index([isPinned])
+  @@index([createdAt])
+  @@map("notes")
+}

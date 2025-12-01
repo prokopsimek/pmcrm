@@ -1,0 +1,310 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: pmcrm-postgres
+    environment:
+      POSTGRES_DB: pmcrm
+      POSTGRES_USER: pmcrm_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+      # Performance tuning
+      POSTGRES_MAX_CONNECTIONS: 200
+      POSTGRES_SHARED_BUFFERS: 4GB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 12GB
+      POSTGRES_WORK_MEM: 16MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 512MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/database-optimization.sql:/docker-entrypoint-initdb.d/01-optimization.sql:ro
+    ports:
+      - "5432:5432"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=4GB"
+      - "-c"
+      - "effective_cache_size=12GB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_worker_processes=8"
+      - "-c"
+      - "max_parallel_workers_per_gather=4"
+      - "-c"
+      - "max_parallel_workers=8"
+      - "-c"
+      - "max_parallel_maintenance_workers=4"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmcrm_app -d pmcrm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pmcrm-network
+
+  # PgBouncer Connection Pooler
+  pgbouncer:
+    build:
+      context: ./infrastructure/postgres
+      dockerfile: Dockerfile.pgbouncer
+    container_name: pmcrm-pgbouncer
+    environment:
+      POSTGRESQL_HOST: postgres
+      POSTGRESQL_PORT: 5432
+      POSTGRESQL_DATABASE: pmcrm
+      POSTGRESQL_USERNAME: pmcrm_app
+      POSTGRESQL_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: 1000
+      PGBOUNCER_DEFAULT_POOL_SIZE: 25
+    ports:
+      - "6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - pmcrm-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pmcrm-redis
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "2gb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--save"
+      - "60 1000"
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--tcp-backlog"
+      - "511"
+      - "--timeout"
+      - "300"
+      - "--tcp-keepalive"
+      - "60"
+      - "--loglevel"
+      - "notice"
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - pmcrm-network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: pmcrm-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+
+      # Database
+      DATABASE_URL: postgresql://pmcrm_app:${POSTGRES_PASSWORD:-changeme}@pgbouncer:6432/pmcrm
+
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Telemetry
+      TELEMETRY_ENABLED: "true"
+      OTLP_ENDPOINT: http://otel-collector:4318
+
+      # Performance
+      CACHE_ENABLED: "true"
+      COMPRESSION_ENABLED: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - pmcrm-network
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: pmcrm-frontend
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://backend:3000
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+    networks:
+      - pmcrm-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: pmcrm-nginx
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_cache:/var/cache/nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - pmcrm-network
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pmcrm-prometheus
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - "9090:9090"
+    networks:
+      - pmcrm-network
+
+  # Grafana Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pmcrm-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/pmcrm.json:ro
+    ports:
+      - "3030:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - pmcrm-network
+
+  # Redis Exporter
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: pmcrm-redis-exporter
+    environment:
+      REDIS_ADDR: redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+    networks:
+      - pmcrm-network
+
+  # PostgreSQL Exporter
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: pmcrm-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://pmcrm_app:${POSTGRES_PASSWORD:-changeme}@postgres:5432/pmcrm?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+    networks:
+      - pmcrm-network
+
+  # Node Exporter
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: pmcrm-node-exporter
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - "9100:9100"
+    networks:
+      - pmcrm-network
+
+  # OpenTelemetry Collector (optional)
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: pmcrm-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./infrastructure/monitoring/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+      - "13133:13133" # health_check
+    networks:
+      - pmcrm-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  nginx_cache:
+    driver: local
+
+networks:
+  pmcrm-network:
+    driver: bridge

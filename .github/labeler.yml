@@ -1,0 +1,71 @@
+# Auto-labeling configuration for PRs based on changed files
+
+# Backend
+'backend':
+  - apps/api/**/*
+  - packages/*/src/**/*.service.ts
+  - packages/*/src/**/*.controller.ts
+  - packages/*/src/**/*.module.ts
+
+# Frontend
+'frontend':
+  - apps/web/**/*
+  - packages/*/src/**/*.tsx
+  - packages/*/src/components/**/*
+
+# Database
+'database':
+  - '**/prisma/**/*'
+  - '**/migrations/**/*'
+  - '**/*.sql'
+
+# Infrastructure
+'infrastructure':
+  - '**/terraform/**/*'
+  - '**/docker/**/*'
+  - '**/Dockerfile'
+  - '**/docker-compose*.yml'
+  - '**/kubernetes/**/*'
+  - '**/.github/workflows/**/*'
+
+# Documentation
+'documentation':
+  - '**/*.md'
+  - '**/docs/**/*'
+
+# Tests
+'tests':
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/*.spec.ts'
+  - '**/*.spec.tsx'
+  - '**/e2e/**/*'
+
+# Dependencies
+'dependencies':
+  - '**/package.json'
+  - '**/package-lock.json'
+  - '**/pnpm-lock.yaml'
+
+# Configuration
+'configuration':
+  - '**/.eslintrc*'
+  - '**/.prettierrc*'
+  - '**/tsconfig*.json'
+  - '**/.env.example'
+  - '**/jest.config*'
+
+# CI/CD
+'ci-cd':
+  - '.github/workflows/**/*'
+
+# Security
+'security':
+  - '**/auth/**/*'
+  - '**/security/**/*'
+
+# API
+'api':
+  - '**/api/**/*'
+  - '**/openapi.yml'
+  - '**/swagger.json'
