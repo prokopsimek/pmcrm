@@ -1,22 +1,41 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/database/prisma.service';
-import { OcrService } from './services/ocr.service';
-import { LinkedInEnrichmentService } from './services/linkedin-enrichment.service';
 import {
-  CreateContactDto,
-  UpdateContactDto,
-  BusinessCardScanDto,
   BusinessCardParseResult,
+  BusinessCardScanDto,
   CheckDuplicateDto,
+  CreateContactDto,
   DuplicateCheckResult,
   LinkedInEnrichmentDto,
   LinkedInEnrichmentResult,
+  UpdateContactDto,
 } from './dto';
+import { LinkedInEnrichmentService } from './services/linkedin-enrichment.service';
+import { OcrService } from './services/ocr.service';
 
+/**
+ * Extended filter options for contacts
+ * US-061: Advanced Filtering
+ */
 interface GetContactsOptions {
+  // Text search
   search?: string;
+  // Pagination
   page?: number;
   limit?: number;
+  // Sorting
+  sortBy?: 'lastContact' | 'importance' | 'name' | 'createdAt';
+  sortOrder?: 'asc' | 'desc';
+  // Advanced filters
+  tags?: string[]; // Filter by tag names (OR logic)
+  company?: string; // Partial match on company name
+  position?: string; // Partial match on position/title
+  location?: string; // Partial match on location
+  source?: string; // Exact match on source (MANUAL, IMPORT, etc.)
+  hasEmail?: boolean; // Has email address
+  hasPhone?: boolean; // Has phone number
+  lastContactedFrom?: Date; // Last contacted after date
+  lastContactedTo?: Date; // Last contacted before date
 }
 
 /**
@@ -32,17 +51,47 @@ export class ContactsService {
   ) {}
 
   /**
-   * Get all contacts for a user with optional search and pagination
+   * Get all contacts for a user with optional search, pagination and filters
+   * US-061: Advanced Filtering
    */
   async getContacts(userId: string, options: GetContactsOptions = {}): Promise<any> {
-    const { search, page = 1, limit = 20 } = options;
+    const {
+      search,
+      page = 1,
+      limit = 20,
+      sortBy,
+      sortOrder,
+      tags,
+      company,
+      position,
+      location,
+      source,
+      hasEmail,
+      hasPhone,
+      lastContactedFrom,
+      lastContactedTo,
+    } = options;
     const skip = (page - 1) * limit;
 
+    // Build orderBy based on sortBy parameter (default: lastContact desc)
+    let orderBy: any = { lastContact: { sort: 'desc', nulls: 'last' } };
+    if (sortBy === 'importance') {
+      orderBy = { importance: sortOrder || 'desc' };
+    } else if (sortBy === 'name') {
+      orderBy = { firstName: sortOrder || 'asc' };
+    } else if (sortBy === 'createdAt') {
+      orderBy = { createdAt: sortOrder || 'desc' };
+    } else if (sortBy === 'lastContact') {
+      orderBy = { lastContact: { sort: sortOrder || 'desc', nulls: 'last' } };
+    }
+
+    // Build the where clause with all filters
     const where: any = {
       userId,
       deletedAt: null,
     };
 
+    // Text search across name and email
     if (search) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },
@@ -51,12 +100,98 @@ export class ContactsService {
       ];
     }
 
+    // Filter by tags (OR logic - contact has any of the specified tags)
+    if (tags && tags.length > 0) {
+      where.contactTags = {
+        some: {
+          tag: {
+            name: { in: tags },
+          },
+        },
+      };
+    }
+
+    // Filter by company (partial match)
+    if (company) {
+      where.OR = where.OR || [];
+      // Check both direct company field and employment company
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { company: { contains: company, mode: 'insensitive' } },
+          {
+            employments: {
+              some: {
+                isCurrent: true,
+                company: {
+                  name: { contains: company, mode: 'insensitive' },
+                },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    // Filter by position (partial match)
+    if (position) {
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { position: { contains: position, mode: 'insensitive' } },
+          {
+            employments: {
+              some: {
+                isCurrent: true,
+                title: { contains: position, mode: 'insensitive' },
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    // Filter by location (partial match)
+    if (location) {
+      where.location = { contains: location, mode: 'insensitive' };
+    }
+
+    // Filter by source (exact match)
+    if (source) {
+      where.source = source;
+    }
+
+    // Filter by hasEmail
+    if (hasEmail === true) {
+      where.email = { not: null };
+    } else if (hasEmail === false) {
+      where.email = null;
+    }
+
+    // Filter by hasPhone
+    if (hasPhone === true) {
+      where.phone = { not: null };
+    } else if (hasPhone === false) {
+      where.phone = null;
+    }
+
+    // Filter by lastContacted date range
+    if (lastContactedFrom || lastContactedTo) {
+      where.lastContact = {};
+      if (lastContactedFrom) {
+        where.lastContact.gte = lastContactedFrom;
+      }
+      if (lastContactedTo) {
+        where.lastContact.lte = lastContactedTo;
+      }
+    }
+
     const [contacts, total] = await Promise.all([
       this.prisma.contact.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           contactTags: {
             include: {
@@ -88,6 +223,7 @@ export class ContactsService {
         notes: contact.notes,
         tags: contact.contactTags?.map((ct: any) => ct.tag.name) || contact.tags || [],
         lastContactedAt: contact.lastContact,
+        importance: contact.importance,
         createdAt: contact.createdAt,
         updatedAt: contact.updatedAt,
       };
@@ -145,6 +281,7 @@ export class ContactsService {
       notes: contact.notes,
       tags: (contact as any).contactTags?.map((ct: any) => ct.tag.name) || contact.tags || [],
       lastContactedAt: contact.lastContact,
+      importance: contact.importance,
       createdAt: contact.createdAt,
       updatedAt: contact.updatedAt,
     };

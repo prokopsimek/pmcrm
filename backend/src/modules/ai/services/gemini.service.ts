@@ -88,8 +88,7 @@ export class GeminiService implements IAIService {
     }
 
     // Use configurable model, default to gemini-2.5-flash
-    this.modelName =
-      this.configService.get<string>('AI_MODEL') || 'gemini-2.5-flash-preview-05-20';
+    this.modelName = this.configService.get<string>('AI_MODEL') || 'gemini-2.5-flash-preview-05-20';
     this.model = google(this.modelName);
 
     this.logger.log(`Gemini AI Service initialized with model: ${this.modelName}`);

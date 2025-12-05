@@ -1,28 +1,31 @@
+import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import {
-  Injectable,
   BadRequestException,
-  UnauthorizedException,
-  NotFoundException,
+  Inject,
+  Injectable,
   Logger,
+  NotFoundException,
+  UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../../shared/database/prisma.service';
-import { OAuthService } from '../shared/oauth.service';
 import { DeduplicationService } from '../shared/deduplication.service';
+import { OAuthService } from '../shared/oauth.service';
 import {
+  DisconnectIntegrationResponseDto,
   ImportContactsDto,
   ImportContactsResponseDto,
-  SyncContactsResponseDto,
-  OAuthInitiateResponseDto,
-  OAuthCallbackResponseDto,
-  DisconnectIntegrationResponseDto,
   IntegrationStatusResponseDto,
+  OAuthCallbackResponseDto,
+  OAuthInitiateResponseDto,
+  SyncContactsResponseDto,
 } from './dto/import-contacts.dto';
 import {
-  ImportPreviewResponseDto,
-  ImportPreviewQueryDto,
-  PreviewContactDto,
   DuplicateMatchDto,
+  ImportPreviewQueryDto,
+  ImportPreviewResponseDto,
   ImportSummaryDto,
+  PreviewContactDto,
 } from './dto/import-preview.dto';
 
 interface GoogleContactsResponse {
@@ -62,6 +65,8 @@ export class GoogleContactsService {
     private readonly prisma: PrismaService,
     private readonly oauthService: OAuthService,
     private readonly deduplicationService: DeduplicationService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
   ) {}
 
   /**
@@ -181,7 +186,7 @@ export class GoogleContactsService {
 
     try {
       const response = await this.callGooglePeopleApi(accessToken, {
-        pageSize: options?.pageSize || 100,
+        pageSize: options?.pageSize || 1000,
         pageToken: options?.pageToken,
         syncToken: options?.syncToken,
       });
@@ -319,6 +324,7 @@ export class GoogleContactsService {
 
   /**
    * Import contacts from Google
+   * Uses atomic UPSERT transaction - if any contact fails, entire import fails with clear error
    */
   async importContacts(userId: string, dto: ImportContactsDto): Promise<ImportContactsResponseDto> {
     this.logger.log(`Importing contacts for user ${userId}`);
@@ -336,63 +342,93 @@ export class GoogleContactsService {
       contactsToImport = allContacts.filter((contact) => selectedIds.includes(contact.externalId));
     }
 
-    // Get existing contacts for deduplication
-    const existingContacts = await this.prisma.contact.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        phone: true,
-        company: true,
-      },
-    });
-
-    // Find duplicates - cast to compatible types
-    const duplicates = await this.deduplicationService.findDuplicates(
-      contactsToImport as any[],
-      existingContacts as any[],
-    );
-
-    const duplicateMap = new Map(
-      duplicates.map((dup) => [
-        (dup.importedContact as any).externalId,
-        dup.existingContact as any,
-      ]),
-    );
-
     let imported = 0;
-    let skipped = 0;
-    let updated = 0;
-    const errors: any[] = [];
+    const importedContactIds: string[] = [];
 
-    // Use transaction for atomic import
+    // Use transaction for atomic import - any error fails the entire transaction
     await this.prisma.$transaction(async (tx) => {
       for (const contact of contactsToImport) {
-        try {
-          const existingContact = duplicateMap.get(contact.externalId);
+        // Apply tag mapping
+        let tags = contact.tags;
+        if (dto.tagMapping) {
+          tags = tags.map((tag) => dto.tagMapping![tag] || tag);
+        }
 
-          if (existingContact && dto.skipDuplicates && !dto.updateExisting) {
-            skipped++;
-            continue;
-          }
+        // UPSERT based on whether contact has email
+        if (contact.email) {
+          // Use compound unique key userId_email for UPSERT
+          const upsertedContact = await tx.contact.upsert({
+            where: {
+              userId_email: {
+                userId,
+                email: contact.email,
+              },
+            },
+            update: {
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              phone: contact.phone,
+              company: contact.company,
+              position: contact.position,
+              tags,
+              metadata: contact.metadata,
+              source: 'GOOGLE_CONTACTS',
+              updatedAt: new Date(),
+            },
+            create: {
+              userId,
+              firstName: contact.firstName,
+              lastName: contact.lastName || '',
+              email: contact.email,
+              phone: contact.phone,
+              company: contact.company,
+              position: contact.position,
+              tags,
+              metadata: contact.metadata,
+              source: 'GOOGLE_CONTACTS',
+            },
+          });
 
-          // Apply tag mapping
-          let tags = contact.tags;
-          if (dto.tagMapping) {
-            const tagMapping = dto.tagMapping;
-            tags = tags.map((tag) => tagMapping[tag] || tag);
-          }
+          importedContactIds.push(upsertedContact.id);
 
-          if (existingContact && dto.updateExisting) {
+          // Create or update integration link
+          await tx.integrationLink.upsert({
+            where: {
+              integrationId_externalId: {
+                integrationId: integration.id,
+                externalId: contact.externalId,
+              },
+            },
+            update: {
+              contactId: upsertedContact.id,
+              metadata: contact.metadata,
+            },
+            create: {
+              integrationId: integration.id,
+              contactId: upsertedContact.id,
+              externalId: contact.externalId,
+              metadata: contact.metadata,
+            },
+          });
+        } else {
+          // Contact without email - check if integration link already exists
+          const existingLink = await tx.integrationLink.findUnique({
+            where: {
+              integrationId_externalId: {
+                integrationId: integration.id,
+                externalId: contact.externalId,
+              },
+            },
+            include: { contact: true },
+          });
+
+          if (existingLink) {
             // Update existing contact
-            await tx.contact.upsert({
-              where: { id: existingContact.id },
-              update: {
+            await tx.contact.update({
+              where: { id: existingLink.contactId },
+              data: {
                 firstName: contact.firstName,
                 lastName: contact.lastName,
-                email: contact.email,
                 phone: contact.phone,
                 company: contact.company,
                 position: contact.position,
@@ -401,28 +437,15 @@ export class GoogleContactsService {
                 source: 'GOOGLE_CONTACTS',
                 updatedAt: new Date(),
               },
-              create: {
-                userId,
-                firstName: contact.firstName,
-                lastName: contact.lastName || '',
-                email: contact.email,
-                phone: contact.phone,
-                company: contact.company,
-                position: contact.position,
-                tags,
-                metadata: contact.metadata,
-                source: 'GOOGLE_CONTACTS',
-              },
             });
-            updated++;
-          } else if (!existingContact) {
+            importedContactIds.push(existingLink.contactId);
+          } else {
             // Create new contact
             const createdContact = await tx.contact.create({
               data: {
                 userId,
                 firstName: contact.firstName,
                 lastName: contact.lastName || '',
-                email: contact.email,
                 phone: contact.phone,
                 company: contact.company,
                 position: contact.position,
@@ -432,7 +455,8 @@ export class GoogleContactsService {
               },
             });
 
-            // Create integration link
+            importedContactIds.push(createdContact.id);
+
             await tx.integrationLink.create({
               data: {
                 integrationId: integration.id,
@@ -441,32 +465,33 @@ export class GoogleContactsService {
                 metadata: contact.metadata,
               },
             });
-
-            imported++;
-          }
-        } catch (error) {
-          errors.push({
-            contactId: contact.externalId,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-          // If all contacts fail, throw to fail the transaction
-          // This handles the case where the database operation itself is broken
-          if (errors.length === contactsToImport.length) {
-            throw error;
           }
         }
+        imported++;
       }
     });
+
+    // Calculate relationship scores for imported contacts
+    if (importedContactIds.length > 0) {
+      try {
+        await this.relationshipScoreService.recalculateForContacts(importedContactIds);
+        this.logger.log(
+          `Calculated relationship scores for ${importedContactIds.length} imported contacts`,
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to calculate relationship scores after import: ${error}`);
+      }
+    }
 
     const duration = Date.now() - startTime;
 
     return {
       success: true,
       imported,
-      skipped,
-      updated,
-      failed: errors.length,
-      errors,
+      skipped: 0,
+      updated: 0,
+      failed: 0,
+      errors: [],
       duration,
       timestamp: new Date(),
     };
@@ -925,7 +950,7 @@ export class GoogleContactsService {
     const accessToken = await this.getValidAccessToken(integration);
 
     const response = await this.callGooglePeopleApi(accessToken, {
-      pageSize: 100,
+      pageSize: 1000,
     });
 
     // Store initial sync token

@@ -3,10 +3,10 @@
  * Test-Driven Development (RED phase)
  * Coverage target: 95%+
  */
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { CalendarSyncController } from './calendar-sync.controller';
 import { CalendarSyncService } from './calendar-sync.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('CalendarSyncController (TDD - API)', () => {
   let controller: CalendarSyncController;
@@ -116,10 +116,10 @@ describe('CalendarSyncController (TDD - API)', () => {
 
       const result = await controller.handleGoogleCallback(mockRequest, code, state);
 
-      expect(result.success).toBe(true);
-      expect(result.integrationId).toBe('integration-789');
+      expect(result!.success).toBe(true);
+      expect(result!.integrationId).toBe('integration-789');
+      // userId is extracted from state in the service, not passed from controller
       expect(mockCalendarSyncService.handleOAuthCallback).toHaveBeenCalledWith(
-        mockUserId,
         code,
         state,
         'google',
@@ -163,9 +163,9 @@ describe('CalendarSyncController (TDD - API)', () => {
 
       const result = await controller.handleOutlookCallback(mockRequest, code, state);
 
-      expect(result.success).toBe(true);
+      expect(result!.success).toBe(true);
+      // userId is extracted from state in the service, not passed from controller
       expect(mockCalendarSyncService.handleOAuthCallback).toHaveBeenCalledWith(
-        mockUserId,
         code,
         state,
         'microsoft',

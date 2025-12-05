@@ -154,7 +154,10 @@ export class ToneAdapterService {
     adapted = adapted.replace(/\binteresting\b/gi, 'cool');
 
     // Remove formal closings
-    adapted = adapted.replace(/(Best regards|Sincerely|Kind regards|Respectfully)[,.]?/gi, 'Cheers');
+    adapted = adapted.replace(
+      /(Best regards|Sincerely|Kind regards|Respectfully)[,.]?/gi,
+      'Cheers',
+    );
 
     return adapted;
   }
@@ -193,4 +196,5 @@ export class ToneAdapterService {
     return Math.min(score, 0.95);
   }
 }
+
 

@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
+import { DatabaseModule } from '../../shared/database/database.module';
+import { ContactsModule } from '../contacts/contacts.module';
 import { NotesController } from './notes.controller';
 import { NotesService } from './notes.service';
-import { DatabaseModule } from '../../shared/database/database.module';
 
 /**
  * Notes Module
@@ -13,10 +14,9 @@ import { DatabaseModule } from '../../shared/database/database.module';
  * - Pin/unpin important notes
  */
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, forwardRef(() => ContactsModule)],
   controllers: [NotesController],
   providers: [NotesService],
   exports: [NotesService],
 })
 export class NotesModule {}
-

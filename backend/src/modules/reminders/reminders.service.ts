@@ -1,10 +1,17 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../shared/database/prisma.service';
-import { DueDateCalculatorService } from './services/due-date-calculator.service';
-import { PrioritySorterService } from './services/priority-sorter.service';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { ReminderStatus } from '@prisma/client';
+import { PrismaService } from '../../shared/database/prisma.service';
+import { RelationshipScoreService } from '../contacts/services/relationship-score.service';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
+import { DueDateCalculatorService } from './services/due-date-calculator.service';
+import { PrioritySorterService } from './services/priority-sorter.service';
 
 @Injectable()
 export class RemindersService {
@@ -12,6 +19,8 @@ export class RemindersService {
     private readonly prisma: PrismaService,
     private readonly dueDateCalculator: DueDateCalculatorService,
     private readonly prioritySorter: PrioritySorterService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
   ) {}
 
   /**
@@ -328,52 +337,26 @@ export class RemindersService {
   }
 
   /**
-   * Update contact's relationship score based on interaction history
+   * Update contact's relationship score using the unified scoring service
    */
   async updateRelationshipScore(contactId: string) {
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
-      include: {
-        activities: {
-          orderBy: {
-            occurredAt: 'desc',
-          },
-          take: 10,
-        },
-      },
     });
 
     if (!contact) {
       throw new NotFoundException('Contact not found');
     }
 
-    // Calculate new frequency score based on recent activities
+    // Increment frequency counter for this interaction
     const newFrequency = Math.min(contact.frequency + 1, 20);
-
-    // Adjust importance based on interaction consistency
-    // This is a simplified algorithm - could be enhanced with AI
-    const daysSinceLastContact = contact.lastContact
-      ? Math.floor((Date.now() - contact.lastContact.getTime()) / (1000 * 60 * 60 * 24))
-      : 365;
-
-    let importanceAdjustment = 0;
-    if (daysSinceLastContact < 7) {
-      importanceAdjustment = 5;
-    } else if (daysSinceLastContact < 30) {
-      importanceAdjustment = 2;
-    } else if (daysSinceLastContact > 90) {
-      importanceAdjustment = -5;
-    }
-
-    const newImportance = Math.max(0, Math.min(100, contact.importance + importanceAdjustment));
-
-    return this.prisma.contact.update({
+    await this.prisma.contact.update({
       where: { id: contactId },
-      data: {
-        frequency: newFrequency,
-        importance: newImportance,
-      },
+      data: { frequency: newFrequency },
     });
+
+    // Recalculate the full relationship score
+    return this.relationshipScoreService.updateContactScore(contactId);
   }
 
   /**

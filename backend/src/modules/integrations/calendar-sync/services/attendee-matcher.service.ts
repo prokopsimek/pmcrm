@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ContactSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../shared/database/prisma.service';
 import { CalendarAttendeeDto } from '../dto';
 
@@ -10,6 +11,36 @@ export interface ContactMatch {
   email: string | null;
   firstName: string;
   lastName: string | null;
+}
+
+/**
+ * Options for creating contact from attendee
+ */
+export interface CreateContactFromAttendeeOptions {
+  /** Contact source (defaults to IMPORT) */
+  source?: ContactSource;
+  /** Additional metadata to store with the contact */
+  eventMetadata?: {
+    eventId?: string;
+    eventDate?: Date;
+    eventSubject?: string;
+    meetingCount?: number;
+    [key: string]: unknown;
+  };
+  /** Company name to set on the contact */
+  company?: string;
+  /** Last contact date to set */
+  lastContactDate?: Date;
+}
+
+/**
+ * Options for match and create operation
+ */
+export interface MatchAndCreateOptions {
+  /** Whether to create contacts for unmatched attendees */
+  autoCreate?: boolean;
+  /** Options passed to createContactFromAttendee */
+  createOptions?: CreateContactFromAttendeeOptions;
 }
 
 /**
@@ -71,11 +102,13 @@ export class AttendeeMatcherService {
    * Create a new contact from a calendar attendee
    * @param userId - User ID for the contact owner
    * @param attendee - Calendar attendee to convert to contact
+   * @param options - Options for contact creation (source, metadata, etc.)
    * @returns Created contact
    */
   async createContactFromAttendee(
     userId: string,
     attendee: CalendarAttendeeDto,
+    options?: CreateContactFromAttendeeOptions,
   ): Promise<ContactMatch> {
     if (!attendee.email) {
       throw new Error('Cannot create contact without email address');
@@ -84,8 +117,22 @@ export class AttendeeMatcherService {
     // Parse display name into first/last name
     const { firstName, lastName } = this.parseDisplayName(attendee.displayName || attendee.email);
 
+    // Determine source - default to IMPORT for backwards compatibility
+    const source = options?.source ?? 'IMPORT';
+
+    // Build metadata object
+    const metadata: Record<string, unknown> = {
+      createdFrom: 'calendar_attendee',
+      originalDisplayName: attendee.displayName,
+    };
+
+    // Add event metadata if provided
+    if (options?.eventMetadata) {
+      Object.assign(metadata, options.eventMetadata);
+    }
+
     this.logger.debug(
-      `Creating contact from attendee: ${attendee.email} (${firstName} ${lastName})`,
+      `Creating contact from attendee: ${attendee.email} (${firstName} ${lastName}), source: ${source}`,
     );
 
     const contact = await this.prisma.contact.create({
@@ -94,11 +141,10 @@ export class AttendeeMatcherService {
         firstName,
         lastName,
         email: attendee.email.toLowerCase(),
-        source: 'IMPORT',
-        metadata: {
-          createdFrom: 'calendar_attendee',
-          originalDisplayName: attendee.displayName,
-        },
+        source,
+        company: options?.company,
+        lastContact: options?.lastContactDate,
+        metadata: metadata as Prisma.InputJsonValue,
       },
       select: {
         id: true,
@@ -115,13 +161,13 @@ export class AttendeeMatcherService {
    * Match attendees and optionally create contacts for unmatched ones
    * @param userId - User ID
    * @param attendees - List of attendees
-   * @param options - Options for matching behavior
+   * @param options - Options for matching and creation behavior
    * @returns All matched/created contacts
    */
   async matchAndCreateContacts(
     userId: string,
     attendees: CalendarAttendeeDto[],
-    options?: { autoCreate?: boolean },
+    options?: MatchAndCreateOptions,
   ): Promise<ContactMatch[]> {
     // Filter attendees with valid emails
     const attendeesWithEmail = attendees.filter((a) => a.email && a.email.trim() !== '');
@@ -174,7 +220,11 @@ export class AttendeeMatcherService {
         if (existing) {
           newContacts.push(existing);
         } else {
-          const newContact = await this.createContactFromAttendee(userId, attendee);
+          const newContact = await this.createContactFromAttendee(
+            userId,
+            attendee,
+            options.createOptions,
+          );
           newContacts.push(newContact);
         }
       } catch (error) {

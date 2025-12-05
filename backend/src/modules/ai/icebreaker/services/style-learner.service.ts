@@ -42,7 +42,9 @@ export class StyleLearnerService {
       return this.getDefaultStyleProfile();
     }
 
-    const messages = sentEmails.map((m) => m.body).filter((content): content is string => content !== null);
+    const messages = sentEmails
+      .map((m) => m.body)
+      .filter((content): content is string => content !== null);
 
     const profile: WritingStyleProfile = {
       avgWordCount: this.calculateAverageWordCount(messages),
@@ -57,7 +59,9 @@ export class StyleLearnerService {
     // Cache the profile
     this.styleCache.set(userId, profile);
 
-    this.logger.log(`Learned style profile for user ${userId}: ${profile.personalityTraits.join(', ')}`);
+    this.logger.log(
+      `Learned style profile for user ${userId}: ${profile.personalityTraits.join(', ')}`,
+    );
 
     return profile;
   }
@@ -263,4 +267,5 @@ export class StyleLearnerService {
     };
   }
 }
+
 

@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../shared/database/prisma.service';
+import { RelationshipScoreService } from '../contacts/services/relationship-score.service';
 import { CreateNoteDto } from './dto/create-note.dto';
 import { UpdateNoteDto } from './dto/update-note.dto';
 
@@ -13,7 +14,11 @@ import { UpdateNoteDto } from './dto/update-note.dto';
 export class NotesService {
   private readonly logger = new Logger(NotesService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
+  ) {}
 
   /**
    * Get all notes for a contact
@@ -68,6 +73,14 @@ export class NotesService {
     });
 
     this.logger.log(`Note created for contact ${contactId} by user ${userId}`);
+
+    // Recalculate relationship score (user investment factor)
+    try {
+      await this.relationshipScoreService.updateContactScore(contactId);
+    } catch (error) {
+      this.logger.warn(`Failed to update relationship score for contact ${contactId}:`, error);
+    }
+
     return note;
   }
 
@@ -102,13 +115,22 @@ export class NotesService {
    */
   async deleteNote(userId: string, noteId: string) {
     // Verify note exists and belongs to user
-    await this.verifyNoteOwnership(userId, noteId);
+    const note = await this.verifyNoteOwnership(userId, noteId);
+    const contactId = note.contactId;
 
     await this.prisma.note.delete({
       where: { id: noteId },
     });
 
     this.logger.log(`Note ${noteId} deleted by user ${userId}`);
+
+    // Recalculate relationship score
+    try {
+      await this.relationshipScoreService.updateContactScore(contactId);
+    } catch (error) {
+      this.logger.warn(`Failed to update relationship score for contact ${contactId}:`, error);
+    }
+
     return { success: true };
   }
 
@@ -189,4 +211,3 @@ export class NotesService {
     return note;
   }
 }
-

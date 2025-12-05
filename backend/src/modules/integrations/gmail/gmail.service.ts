@@ -24,11 +24,18 @@ import {
  * Gmail Integration Service
  * Implements OAuth 2.0 flow, email sync configuration, and email synchronization
  */
+interface GmailStateData {
+  userId: string;
+  timestamp: number;
+  orgSlug?: string;
+  redirectUrl?: string;
+}
+
 @Injectable()
 export class GmailService {
   private readonly logger = new Logger(GmailService.name);
   private readonly GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-  private readonly stateStore = new Map<string, { userId: string; timestamp: number }>();
+  private readonly stateStore = new Map<string, GmailStateData>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -40,7 +47,10 @@ export class GmailService {
   /**
    * Initiate OAuth flow for Gmail
    */
-  async initiateOAuthFlow(userId: string): Promise<GmailOAuthInitiateResponseDto> {
+  async initiateOAuthFlow(
+    userId: string,
+    orgSlug?: string,
+  ): Promise<GmailOAuthInitiateResponseDto> {
     this.logger.log(`Initiating Gmail OAuth flow for user ${userId}`);
 
     // Check if OAuth is properly configured
@@ -56,14 +66,15 @@ export class GmailService {
         userId,
         provider: 'google',
         usePKCE: false,
+        integration: 'gmail', // Use /gmail/callback instead of /google/callback
       });
 
       // Extract state from URL
       const url = new URL(authUrl);
       const state = url.searchParams.get('state') || '';
 
-      // Store state for validation
-      this.stateStore.set(state, { userId, timestamp: Date.now() });
+      // Store state for validation (including orgSlug for redirect)
+      this.stateStore.set(state, { userId, timestamp: Date.now(), orgSlug });
 
       return {
         authUrl,
@@ -82,13 +93,17 @@ export class GmailService {
   /**
    * Handle OAuth callback and store tokens
    */
-  async handleOAuthCallback(code: string, state: string): Promise<GmailOAuthCallbackResponseDto> {
-    // Extract and validate state, get userId
-    const userId = this.extractUserIdFromState(state);
-    if (!userId) {
+  async handleOAuthCallback(
+    code: string,
+    state: string,
+  ): Promise<GmailOAuthCallbackResponseDto & { orgSlug?: string }> {
+    // Extract and validate state data
+    const stateData = this.extractStateData(state);
+    if (!stateData) {
       throw new BadRequestException('Invalid or expired state parameter');
     }
 
+    const { userId, orgSlug } = stateData;
     this.logger.log(`Handling Gmail OAuth callback for user ${userId}`);
 
     try {
@@ -96,6 +111,7 @@ export class GmailService {
       const tokens = await this.oauthService.exchangeCodeForTokens({
         code,
         provider: 'google',
+        integration: 'gmail', // Must match the redirect_uri used in generateAuthUrl
       });
 
       // Encrypt tokens
@@ -158,6 +174,7 @@ export class GmailService {
         success: true,
         integrationId: integration.id,
         message: 'Gmail connected successfully',
+        orgSlug,
       };
     } catch (error) {
       this.logger.error(
@@ -516,9 +533,9 @@ export class GmailService {
   // Private helper methods
 
   /**
-   * Extract userId from state parameter
+   * Extract state data from state parameter
    */
-  private extractUserIdFromState(state: string): string | null {
+  private extractStateData(state: string): GmailStateData | null {
     if (!state) {
       return null;
     }
@@ -539,7 +556,7 @@ export class GmailService {
     // Clean up used state
     this.stateStore.delete(state);
 
-    return stored.userId;
+    return stored;
   }
 
   /**

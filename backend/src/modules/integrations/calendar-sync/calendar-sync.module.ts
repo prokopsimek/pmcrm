@@ -1,14 +1,16 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ContactsModule } from '@/modules/contacts/contacts.module';
 import { BullModule } from '@nestjs/bull';
+import { Module, forwardRef } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { PrismaService } from '../../../shared/database/prisma.service';
+import { OAuthService } from '../shared/oauth.service';
 import { CalendarSyncController } from './calendar-sync.controller';
 import { CalendarSyncService } from './calendar-sync.service';
+import { CalendarSyncJob } from './jobs/calendar-sync.job';
+import { AttendeeMatcherService } from './services/attendee-matcher.service';
+import { CalendarContactImporterService } from './services/calendar-contact-importer.service';
 import { GoogleCalendarClientService } from './services/google-calendar-client.service';
 import { OutlookCalendarClientService } from './services/outlook-calendar-client.service';
-import { AttendeeMatcherService } from './services/attendee-matcher.service';
-import { CalendarSyncJob } from './jobs/calendar-sync.job';
-import { OAuthService } from '../shared/oauth.service';
-import { PrismaService } from '../../../shared/database/prisma.service';
 
 /**
  * Calendar Sync Module
@@ -29,6 +31,7 @@ import { PrismaService } from '../../../shared/database/prisma.service';
         },
       },
     }),
+    forwardRef(() => ContactsModule),
   ],
   controllers: [CalendarSyncController],
   providers: [
@@ -36,10 +39,11 @@ import { PrismaService } from '../../../shared/database/prisma.service';
     GoogleCalendarClientService,
     OutlookCalendarClientService,
     AttendeeMatcherService,
+    CalendarContactImporterService,
     CalendarSyncJob,
     OAuthService,
     PrismaService,
   ],
-  exports: [CalendarSyncService],
+  exports: [CalendarSyncService, CalendarContactImporterService],
 })
 export class CalendarSyncModule {}

@@ -3,14 +3,14 @@
  * Test-Driven Development (RED phase)
  * Coverage target: 95%+
  */
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { CalendarSyncService } from './calendar-sync.service';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { OAuthService } from '../shared/oauth.service';
+import { CalendarSyncService } from './calendar-sync.service';
+import { AttendeeMatcherService } from './services/attendee-matcher.service';
 import { GoogleCalendarClientService } from './services/google-calendar-client.service';
 import { OutlookCalendarClientService } from './services/outlook-calendar-client.service';
-import { AttendeeMatcherService } from './services/attendee-matcher.service';
 
 describe('CalendarSyncService (TDD - Unit)', () => {
   let service: CalendarSyncService;
@@ -122,7 +122,8 @@ describe('CalendarSyncService (TDD - Unit)', () => {
         scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
         userId: mockUserId,
         provider: 'google',
-        usePKCE: true,
+        usePKCE: false,
+        integration: 'google-calendar',
       });
     });
 
@@ -158,7 +159,8 @@ describe('CalendarSyncService (TDD - Unit)', () => {
         scopes: ['Calendars.Read', 'offline_access'],
         userId: mockUserId,
         provider: 'microsoft',
-        usePKCE: true,
+        usePKCE: false,
+        integration: 'outlook-calendar',
       });
     });
 
@@ -174,10 +176,20 @@ describe('CalendarSyncService (TDD - Unit)', () => {
 
   describe('handleOAuthCallback', () => {
     const mockCode = 'auth-code-123';
-    const mockState = 'state-456';
     const mockProvider = 'google';
 
+    // Helper to initiate OAuth and get state
+    const initiateOAuthAndGetState = async () => {
+      mockOAuthService.generateAuthUrl.mockReturnValue(
+        `https://accounts.google.com/o/oauth2/auth?state=test-state-123&redirect_uri=...`,
+      );
+      const result = await service.connectGoogleCalendar(mockUserId);
+      return result.state;
+    };
+
     it('should exchange code for tokens and store integration', async () => {
+      const mockState = await initiateOAuthAndGetState();
+
       const mockTokens = {
         access_token: 'access-token-xyz',
         refresh_token: 'refresh-token-abc',
@@ -196,12 +208,7 @@ describe('CalendarSyncService (TDD - Unit)', () => {
         userId: mockUserId,
       });
 
-      const result = await service.handleOAuthCallback(
-        mockUserId,
-        mockCode,
-        mockState,
-        mockProvider,
-      );
+      const result = await service.handleOAuthCallback(mockCode, mockState, mockProvider);
 
       expect(result.integrationId).toBe(mockIntegrationId);
       expect(result.success).toBe(true);
@@ -219,6 +226,8 @@ describe('CalendarSyncService (TDD - Unit)', () => {
     });
 
     it('should create CalendarSyncConfig after integration setup', async () => {
+      const mockState = await initiateOAuthAndGetState();
+
       const mockTokens = {
         access_token: 'access-token',
         refresh_token: 'refresh-token',
@@ -232,35 +241,34 @@ describe('CalendarSyncService (TDD - Unit)', () => {
       });
       mockPrismaService.calendarSyncConfig.create.mockResolvedValue({});
 
-      await service.handleOAuthCallback(mockUserId, mockCode, mockState, mockProvider);
+      await service.handleOAuthCallback(mockCode, mockState, mockProvider);
 
       expect(mockPrismaService.calendarSyncConfig.create).toHaveBeenCalledWith({
         data: {
           userId: mockUserId,
-          syncEnabled: true,
-          googleCalendarId: 'primary',
+          syncEnabled: false, // User needs to select calendars first
+          selectedCalendarIds: [],
         },
       });
     });
 
     it('should validate state parameter to prevent CSRF', async () => {
-      mockOAuthService.exchangeCodeForTokens.mockRejectedValue(
-        new BadRequestException('Invalid state'),
-      );
-
+      // Don't initiate OAuth - state won't be in store
       await expect(
-        service.handleOAuthCallback(mockUserId, mockCode, 'invalid-state', mockProvider),
+        service.handleOAuthCallback(mockCode, 'invalid-state', mockProvider),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw UnauthorizedException on token exchange failure', async () => {
+    it('should throw BadRequestException on token exchange failure', async () => {
+      const mockState = await initiateOAuthAndGetState();
+
       mockOAuthService.exchangeCodeForTokens.mockRejectedValue(
         new Error('Invalid authorization code'),
       );
 
-      await expect(
-        service.handleOAuthCallback(mockUserId, mockCode, mockState, mockProvider),
-      ).rejects.toThrow();
+      await expect(service.handleOAuthCallback(mockCode, mockState, mockProvider)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 

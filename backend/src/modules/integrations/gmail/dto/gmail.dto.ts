@@ -117,3 +117,5 @@ export class EmailSyncErrorDto {
   error: string;
   timestamp: Date;
 }
+
+

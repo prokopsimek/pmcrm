@@ -42,7 +42,10 @@ export class IcebreakerController {
   @ApiResponse({ status: 400, description: 'Invalid input' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Contact not found' })
-  async generate(@Request() req: any, @Body() dto: GenerateIcebreakerDto): Promise<IcebreakerResponseDto> {
+  async generate(
+    @Request() req: any,
+    @Body() dto: GenerateIcebreakerDto,
+  ): Promise<IcebreakerResponseDto> {
     if (!req.user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -86,7 +89,11 @@ export class IcebreakerController {
   @ApiResponse({ status: 200, description: 'Variation selected successfully' })
   @ApiResponse({ status: 400, description: 'Invalid variation index' })
   @ApiResponse({ status: 404, description: 'Generation not found' })
-  async selectVariation(@Request() req: any, @Param('id') id: string, @Body() dto: SelectVariationDto) {
+  async selectVariation(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto: SelectVariationDto,
+  ) {
     if (!req.user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -98,7 +105,11 @@ export class IcebreakerController {
   @ApiOperation({ summary: 'Submit feedback on generated icebreaker' })
   @ApiResponse({ status: 200, description: 'Feedback submitted successfully' })
   @ApiResponse({ status: 404, description: 'Generation not found' })
-  async submitFeedback(@Request() req: any, @Param('id') id: string, @Body() dto: SubmitFeedbackDto) {
+  async submitFeedback(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() dto: SubmitFeedbackDto,
+  ) {
     if (!req.user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
@@ -119,4 +130,5 @@ export class IcebreakerController {
     return this.icebreakerService.getHistory(req.user.id);
   }
 }
+
 

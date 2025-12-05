@@ -1,31 +1,44 @@
+import type { SessionUser } from '@/shared/decorators/current-user.decorator';
+import { CurrentUser } from '@/shared/decorators/current-user.decorator';
 import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Query,
-  Param,
-  Body,
-  Res,
-  BadRequestException,
-  UnauthorizedException,
+    BadRequestException,
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Param,
+    Post,
+    Put,
+    Query,
+    Res,
+    UnauthorizedException,
 } from '@nestjs/common';
-import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
+import type { Response } from 'express';
 import { CalendarSyncService } from './calendar-sync.service';
 import {
-  CalendarConnectionResponseDto,
-  CalendarCallbackResponseDto,
-  CalendarSyncResultDto,
-  CalendarDisconnectResultDto,
-  CalendarStatusResponseDto,
+    CalendarConfigResponseDto,
+    CalendarListResponseDto,
+    UpdateCalendarSelectionDto,
+} from './dto/calendar-config.dto';
+import {
+    CalendarCallbackResponseDto,
+    CalendarConnectionResponseDto,
+    CalendarDisconnectResultDto,
+    CalendarStatusResponseDto,
+    CalendarSyncResultDto,
 } from './dto/calendar-connection.dto';
 import { FetchEventsResponseDto } from './dto/calendar-event.dto';
+import {
+    CalendarContactsPreviewQueryDto,
+    CalendarContactsPreviewResponseDto,
+    ImportCalendarContactsDto,
+    ImportCalendarContactsResponseDto,
+} from './dto/calendar-import.dto';
 import { AddMeetingNotesDto, MeetingNotesResponseDto } from './dto/meeting-notes.dto';
-import { CurrentUser } from '@/shared/decorators/current-user.decorator';
-import type { SessionUser } from '@/shared/decorators/current-user.decorator';
+import { CalendarContactImporterService } from './services/calendar-contact-importer.service';
 
 /**
  * Calendar Sync Controller
@@ -36,6 +49,7 @@ import type { SessionUser } from '@/shared/decorators/current-user.decorator';
 export class CalendarSyncController {
   constructor(
     private readonly calendarSyncService: CalendarSyncService,
+    private readonly calendarContactImporter: CalendarContactImporterService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -125,19 +139,12 @@ export class CalendarSyncController {
     }
 
     try {
-      // For callback, get userId from state (OAuth flow)
-      const userId = user?.id || 'from-state'; // State validation happens in service
-
-      const result = await this.calendarSyncService.handleOAuthCallback(
-        userId,
-        code,
-        state,
-        'google',
-      );
+      // userId is extracted from state in the service (callback is anonymous)
+      const result = await this.calendarSyncService.handleOAuthCallback(code, state, 'google');
 
       if (res) {
         res.redirect(
-          `${redirectBase}?success=google-calendar&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
+          `${redirectBase}?success=google-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
         );
         return;
       }
@@ -199,18 +206,12 @@ export class CalendarSyncController {
     }
 
     try {
-      const userId = user?.id || 'from-state';
-
-      const result = await this.calendarSyncService.handleOAuthCallback(
-        userId,
-        code,
-        state,
-        'microsoft',
-      );
+      // userId is extracted from state in the service (callback is anonymous)
+      const result = await this.calendarSyncService.handleOAuthCallback(code, state, 'microsoft');
 
       if (res) {
         res.redirect(
-          `${redirectBase}?success=outlook-calendar&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
+          `${redirectBase}?success=outlook-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
         );
         return;
       }
@@ -390,5 +391,191 @@ export class CalendarSyncController {
     }
 
     return this.calendarSyncService.getCalendarStatus(user.id);
+  }
+
+  // ============================================================================
+  // CALENDAR CONFIGURATION ENDPOINTS
+  // ============================================================================
+
+  /**
+   * Get list of available calendars
+   * GET /api/v1/calendar/available
+   */
+  @Get('calendar/available')
+  @ApiOperation({
+    summary: 'Get list of available calendars',
+    description: 'Returns all calendars accessible by the user for selection.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of available calendars',
+    type: CalendarListResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No active calendar integration found',
+  })
+  async getAvailableCalendars(
+    @CurrentUser() user: SessionUser | any,
+  ): Promise<CalendarListResponseDto> {
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    return this.calendarSyncService.getAvailableCalendars(user.id);
+  }
+
+  /**
+   * Get calendar configuration
+   * GET /api/v1/calendar/config
+   */
+  @Get('calendar/config')
+  @ApiOperation({
+    summary: 'Get calendar configuration',
+    description: 'Returns current calendar selection and sync settings.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Calendar configuration',
+    type: CalendarConfigResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No active calendar integration found',
+  })
+  async getCalendarConfig(
+    @CurrentUser() user: SessionUser | any,
+  ): Promise<CalendarConfigResponseDto> {
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    return this.calendarSyncService.getCalendarConfig(user.id);
+  }
+
+  /**
+   * Update calendar selection
+   * PUT /api/v1/calendar/config
+   */
+  @Put('calendar/config')
+  @ApiOperation({
+    summary: 'Update calendar selection',
+    description:
+      'Saves the selected calendars for contact import. Enables sync when at least one calendar is selected.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Calendar configuration updated',
+    type: CalendarConfigResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No active calendar integration found',
+  })
+  async updateCalendarSelection(
+    @CurrentUser() user: SessionUser | any,
+    @Body() dto: UpdateCalendarSelectionDto,
+  ): Promise<CalendarConfigResponseDto> {
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    return this.calendarSyncService.updateCalendarSelection(user.id, dto);
+  }
+
+  // ============================================================================
+  // CALENDAR CONTACT IMPORT ENDPOINTS
+  // ============================================================================
+
+  /**
+   * Preview contacts that can be imported from calendar events
+   * POST /api/v1/calendar/contacts/preview
+   */
+  @Post('calendar/contacts/preview')
+  @ApiOperation({
+    summary: 'Preview contacts from calendar events',
+    description:
+      'Scans calendar events in the specified date range and returns a preview of contacts that can be imported from meeting attendees.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Preview of contacts from calendar events',
+    type: CalendarContactsPreviewResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No active calendar integration found',
+  })
+  async previewCalendarContacts(
+    @CurrentUser() user: SessionUser | any,
+    @Body() query: CalendarContactsPreviewQueryDto,
+  ): Promise<CalendarContactsPreviewResponseDto> {
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    // Validate date range
+    const startDate = new Date(query.startDate);
+    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+
+    if (isNaN(startDate.getTime())) {
+      throw new BadRequestException('Invalid startDate format');
+    }
+
+    if (isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid endDate format');
+    }
+
+    if (startDate >= endDate) {
+      throw new BadRequestException('startDate must be before endDate');
+    }
+
+    return this.calendarContactImporter.previewImport(user.id, query);
+  }
+
+  /**
+   * Import contacts from calendar events
+   * POST /api/v1/calendar/contacts/import
+   */
+  @Post('calendar/contacts/import')
+  @ApiOperation({
+    summary: 'Import contacts from calendar events',
+    description:
+      'Creates contacts from meeting attendees found in calendar events within the specified date range.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contacts imported successfully',
+    type: ImportCalendarContactsResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No active calendar integration found',
+  })
+  async importCalendarContacts(
+    @CurrentUser() user: SessionUser | any,
+    @Body() dto: ImportCalendarContactsDto,
+  ): Promise<ImportCalendarContactsResponseDto> {
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    // Validate date range
+    const startDate = new Date(dto.startDate);
+    const endDate = dto.endDate ? new Date(dto.endDate) : new Date();
+
+    if (isNaN(startDate.getTime())) {
+      throw new BadRequestException('Invalid startDate format');
+    }
+
+    if (isNaN(endDate.getTime())) {
+      throw new BadRequestException('Invalid endDate format');
+    }
+
+    if (startDate >= endDate) {
+      throw new BadRequestException('startDate must be before endDate');
+    }
+
+    return this.calendarContactImporter.importContacts(user.id, dto);
   }
 }

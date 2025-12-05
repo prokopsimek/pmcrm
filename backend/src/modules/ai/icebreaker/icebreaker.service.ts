@@ -17,7 +17,14 @@ import {
   IcebreakerResponseDto,
   IcebreakerHistoryDto,
 } from './dto/generate-icebreaker.dto';
-import { GenerationContext, ContactContext, UserContext, MessageVariation, Channel, Tone } from './types';
+import {
+  GenerationContext,
+  ContactContext,
+  UserContext,
+  MessageVariation,
+  Channel,
+  Tone,
+} from './types';
 
 @Injectable()
 export class IcebreakerService {
@@ -30,7 +37,10 @@ export class IcebreakerService {
     private readonly styleLearner: StyleLearnerService,
   ) {}
 
-  async generateIcebreaker(userId: string, dto: GenerateIcebreakerDto): Promise<IcebreakerResponseDto> {
+  async generateIcebreaker(
+    userId: string,
+    dto: GenerateIcebreakerDto,
+  ): Promise<IcebreakerResponseDto> {
     this.logger.log(`Generating icebreaker for user ${userId}, contact ${dto.contactId}`);
 
     // 1. Fetch and validate contact
@@ -172,7 +182,7 @@ export class IcebreakerService {
     const updated = await this.prisma.generatedIcebreaker.update({
       where: { id: generationId, userId },
       data: {
-        selected: selected as any,
+        selected: selected,
       },
     });
 
@@ -368,7 +378,8 @@ export class IcebreakerService {
     const writingStyleProfile = await this.styleLearner.getWritingStyleProfile(userId);
 
     // Build full name from available fields
-    const userName = user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    const userName =
+      user.name || [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
 
     return {
       userName,
@@ -386,8 +397,8 @@ export class IcebreakerService {
 
     return {
       contactName: `${contact.firstName} ${contact.lastName || ''}`.trim(),
-      currentTitle: currentEmployment?.title || (contact.enrichmentData as any)?.currentTitle,
-      currentCompany: currentEmployment?.company?.name || (contact.enrichmentData as any)?.currentCompany,
+      currentTitle: currentEmployment?.title || contact.enrichmentData?.currentTitle,
+      currentCompany: currentEmployment?.company?.name || contact.enrichmentData?.currentCompany,
       relationshipSummary: this.buildRelationshipSummary(contact),
       lastInteractionDate: lastInteraction?.occurredAt,
       mutualConnections,
@@ -418,4 +429,3 @@ export class IcebreakerService {
     return parts.join('. ') || 'No previous interaction history';
   }
 }
-

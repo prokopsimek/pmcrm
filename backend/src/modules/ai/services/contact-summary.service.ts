@@ -3,10 +3,11 @@
  * Manages AI-generated summaries and recommendations with caching
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import { PrismaService } from '@/shared/database/prisma.service';
-import { GeminiService, AIRecommendation, TimelineSummary } from './gemini.service';
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from '@nestjs/common';
 import { AISummaryType } from '@prisma/client';
+import { AIRecommendation, GeminiService } from './gemini.service';
 
 export interface ContactSummaryResult {
   id: string;
@@ -27,6 +28,8 @@ export class ContactSummaryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly geminiService: GeminiService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
   ) {}
 
   /**
@@ -152,6 +155,16 @@ export class ContactSummaryService {
         metadata: { model: 'gemini-2.5-flash' },
       },
     });
+
+    // Update relationship score when regenerating summary
+    if (forceRegenerate) {
+      try {
+        await this.relationshipScoreService.updateContactScore(contactId);
+        this.logger.debug(`Updated relationship score for contact ${contactId}`);
+      } catch (error) {
+        this.logger.warn(`Failed to update relationship score for contact ${contactId}: ${error}`);
+      }
+    }
 
     return {
       id: stored.id,

@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectQueue, Processor, Process } from '@nestjs/bull';
-import type { Queue, Job } from 'bull';
+import { InjectQueue, Process, Processor } from '@nestjs/bull';
+import { forwardRef, Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import type { Job, Queue } from 'bull';
 import { PrismaService } from '../../../../shared/database/prisma.service';
 import { CalendarSyncService } from '../calendar-sync.service';
 
@@ -25,6 +25,7 @@ export class CalendarSyncJob implements OnModuleInit {
   constructor(
     @InjectQueue('calendar-sync') private readonly calendarSyncQueue: Queue,
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => CalendarSyncService))
     private readonly calendarSyncService: CalendarSyncService,
   ) {}
 
@@ -111,22 +112,32 @@ export class CalendarSyncJob implements OnModuleInit {
   @Process('sync')
   async processSync(job: Job<CalendarSyncJobData>) {
     const { userId, type } = job.data;
-    this.logger.log(`Processing calendar sync for user ${userId}, type: ${type}`);
+    const startTime = Date.now();
+
+    this.logger.log(`[processSync] Starting calendar sync job for user ${userId}, type: ${type}, jobId: ${job.id}`);
 
     try {
+      this.logger.debug(`[processSync] Calling incrementalSync for user ${userId}`);
       const result = await this.calendarSyncService.incrementalSync(userId);
 
-      this.logger.log(`Calendar sync completed for user ${userId}: ${result.synced} events synced`);
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[processSync] Calendar sync completed for user ${userId}: ` +
+          `${result.synced} synced, ${result.added || 0} added, ${result.updated || 0} updated, ` +
+          `duration: ${duration}ms`,
+      );
 
       return {
         success: true,
         synced: result.synced,
         added: result.added,
         updated: result.updated,
+        duration,
       };
     } catch (error) {
+      const duration = Date.now() - startTime;
       this.logger.error(
-        `Calendar sync failed for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `[processSync] Calendar sync failed for user ${userId} after ${duration}ms: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
 
       // Rethrow to trigger retry
@@ -145,6 +156,8 @@ export class CalendarSyncJob implements OnModuleInit {
   ): Promise<void> {
     const jobId = `calendar-sync-immediate-${userId}-${Date.now()}`;
 
+    this.logger.debug(`[queueImmediateSync] Queueing sync job for user ${userId}, type: ${type}, jobId: ${jobId}`);
+
     await this.calendarSyncQueue.add('sync', { userId, type } as CalendarSyncJobData, {
       jobId,
       priority: 1, // High priority
@@ -152,7 +165,7 @@ export class CalendarSyncJob implements OnModuleInit {
       removeOnFail: false,
     });
 
-    this.logger.log(`Queued immediate calendar sync for user ${userId}`);
+    this.logger.log(`[queueImmediateSync] Queued immediate calendar sync for user ${userId}, jobId: ${jobId}`);
   }
 
   /**

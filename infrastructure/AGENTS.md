@@ -265,3 +265,8 @@ psql $DATABASE_URL < backup.sql
 - [ ] Secrets rotated regularly
 - [ ] Monitoring alerts configured
 
+
+
+
+
+

@@ -173,3 +173,8 @@ Use raw SQL for:
 - Trigram search
 - Vector similarity search
 
+
+
+
+
+

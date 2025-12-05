@@ -5,27 +5,33 @@
  * US-051: AI icebreaker message generation
  */
 
-import { Module } from '@nestjs/common';
+import { ContactsModule } from '@/modules/contacts/contacts.module';
+import { DatabaseModule } from '@/shared/database/database.module';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { DatabaseModule } from '@/shared/database/database.module';
 
 // AI Service providers
+import { AISummaryJob } from './jobs/ai-summary.job';
+import { AIServiceFactory } from './services/ai-service.factory';
+import { AnthropicService } from './services/anthropic.service';
+import { ContactSummaryService } from './services/contact-summary.service';
 import { GeminiService } from './services/gemini.service';
 import { OpenAIService } from './services/openai.service';
-import { AnthropicService } from './services/anthropic.service';
-import { AIServiceFactory } from './services/ai-service.factory';
-import { ContactSummaryService } from './services/contact-summary.service';
-import { AISummaryJob } from './jobs/ai-summary.job';
 
 // US-051: Icebreaker imports
-import { IcebreakerService } from './icebreaker/icebreaker.service';
 import { IcebreakerController } from './icebreaker/icebreaker.controller';
-import { ToneAdapterService } from './icebreaker/services/tone-adapter.service';
+import { IcebreakerService } from './icebreaker/icebreaker.service';
 import { StyleLearnerService } from './icebreaker/services/style-learner.service';
+import { ToneAdapterService } from './icebreaker/services/tone-adapter.service';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, ScheduleModule.forRoot()],
+  imports: [
+    ConfigModule,
+    DatabaseModule,
+    ScheduleModule.forRoot(),
+    forwardRef(() => ContactsModule),
+  ],
   controllers: [IcebreakerController],
   providers: [
     // AI service providers (all available, factory selects active one)

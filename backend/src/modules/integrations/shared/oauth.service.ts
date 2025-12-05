@@ -7,6 +7,7 @@ interface OAuthConfig {
   userId: string;
   provider: 'google' | 'linkedin' | 'microsoft';
   usePKCE?: boolean;
+  integration?: string; // Custom integration name for callback URL (e.g., 'gmail' when using Google OAuth)
 }
 
 interface OAuthTokens {
@@ -59,7 +60,7 @@ export class OAuthService {
    * Generate OAuth authorization URL with PKCE support
    */
   generateAuthUrl(config: OAuthConfig): string {
-    const { scopes, userId, provider, usePKCE = true } = config;
+    const { scopes, userId, provider, usePKCE = true, integration } = config;
 
     // Validate configuration before proceeding
     if (!this.encryptionKey) {
@@ -69,7 +70,7 @@ export class OAuthService {
     }
 
     const state = this.generateState(userId);
-    const redirectUri = this.getRedirectUri(provider);
+    const redirectUri = this.getRedirectUri(provider, integration);
 
     const params = new URLSearchParams({
       client_id: this.getClientId(provider),
@@ -94,14 +95,18 @@ export class OAuthService {
   /**
    * Exchange authorization code for access and refresh tokens
    */
-  async exchangeCodeForTokens(data: { code: string; provider: string }): Promise<OAuthTokens> {
-    const { code, provider } = data;
+  async exchangeCodeForTokens(data: {
+    code: string;
+    provider: string;
+    integration?: string;
+  }): Promise<OAuthTokens> {
+    const { code, provider, integration } = data;
 
     const body = new URLSearchParams({
       code,
       client_id: this.getClientId(provider),
       client_secret: this.getClientSecret(provider),
-      redirect_uri: this.getRedirectUri(provider),
+      redirect_uri: this.getRedirectUri(provider, integration),
       grant_type: 'authorization_code',
     });
 
@@ -286,7 +291,7 @@ export class OAuthService {
     return clientSecret;
   }
 
-  private getRedirectUri(provider: string): string {
+  private getRedirectUri(provider: string, integration?: string): string {
     // Check multiple possible env variable names for the base URL
     const baseUrl =
       this.configService.get<string>('APP_URL') ||
@@ -294,7 +299,9 @@ export class OAuthService {
       this.configService.get<string>('BACKEND_URL') ||
       'http://localhost:3001';
 
-    return `${baseUrl}/api/v1/integrations/${provider}/callback`;
+    // Use integration name if provided (e.g., 'gmail' for Gmail using Google OAuth)
+    const callbackPath = integration || provider;
+    return `${baseUrl}/api/v1/integrations/${callbackPath}/callback`;
   }
 
   private getAuthEndpoint(provider: string): string {

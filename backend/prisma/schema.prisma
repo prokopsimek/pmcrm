@@ -53,6 +53,7 @@ model User {
   contactTags          ContactTag[]        @relation("UserContactTags")
   generatedIcebreakers GeneratedIcebreaker[] @relation("UserIcebreakers")
   notes                Note[]              @relation("UserNotes")
+  savedViews           SavedView[]         @relation("UserSavedViews")
 
   // Better-auth organization plugin relations
   organizationMembers  Member[]            @relation("UserOrgMembers")
@@ -286,7 +287,9 @@ enum ContactSource {
   LINKEDIN
   EMAIL
   GOOGLE_CONTACTS
+  GOOGLE_CALENDAR
   MICROSOFT_CONTACTS
+  MICROSOFT_CALENDAR
   API
 }
 
@@ -740,16 +743,17 @@ model EnrichmentLog {
 
 // Calendar sync configuration
 model CalendarSyncConfig {
-  id                String    @id @default(cuid())
-  userId            String    @unique
-  googleCalendarId  String?   @default("primary")
-  outlookCalendarId String?
-  syncEnabled       Boolean   @default(true)
-  syncToken         String? // For incremental sync
-  lastSyncAt        DateTime?
-  metadata          Json?     @default("{}")
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  selectedCalendarIds   String[]  @default([]) // IDs of calendars selected for contact import
+  syncEnabled           Boolean   @default(false) // Only enabled after user selects calendars
+  syncPeriodDays        Int       @default(30) // How many days back to sync events/contacts
+  syncToken             String? // For incremental sync
+  lastSyncAt            DateTime? // Last event sync timestamp
+  lastContactImportAt   DateTime? // When contacts were last imported from calendar events
+  metadata              Json?     @default("{}")
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   user User @relation("UserCalendarSync", fields: [userId], references: [id], onDelete: Cascade)
 
@@ -935,4 +939,26 @@ model Note {
   @@index([isPinned])
   @@index([createdAt])
   @@map("notes")
+}
+
+// ============================================================================
+// SAVED VIEWS MODULE (US-061)
+// ============================================================================
+
+// SavedView model for storing user's filter configurations
+model SavedView {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  filters   Json     // Serialized filter configuration (tags, company, etc.)
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserSavedViews", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([isDefault])
+  @@map("saved_views")
 }

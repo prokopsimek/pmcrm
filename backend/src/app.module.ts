@@ -32,6 +32,8 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { NotesModule } from './modules/notes/notes.module';
+import { SavedViewsModule } from './modules/saved-views/saved-views.module';
+import { TimelineModule } from './modules/timeline/timeline.module';
 
 @Module({
   imports: [
@@ -67,6 +69,8 @@ import { NotesModule } from './modules/notes/notes.module';
     OrganizationsModule,
     AdminModule,
     NotesModule,
+    SavedViewsModule,
+    TimelineModule,
   ],
   providers: [
     // Global services

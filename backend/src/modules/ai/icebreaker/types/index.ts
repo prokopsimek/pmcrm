@@ -70,4 +70,3 @@ export interface IcebreakerGenerationResult {
   usageMetrics: LLMUsageMetrics;
   contextData: GenerationContext;
 }
-

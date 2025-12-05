@@ -3,10 +3,21 @@
  * Fetches and syncs emails for a specific contact from Gmail
  */
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import { PrismaService } from '@/shared/database/prisma.service';
-import { GmailClientService } from './gmail-client.service';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  MessageEvent,
+  NotFoundException,
+  forwardRef,
+} from '@nestjs/common';
 import { EmailDirection } from '@prisma/client';
+import { Observable, Subject } from 'rxjs';
+import { OAuthService } from '../../shared/oauth.service';
+import { GmailClientService } from './gmail-client.service';
 
 export interface ContactEmail {
   id: string;
@@ -33,6 +44,9 @@ export class ContactEmailService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gmailClient: GmailClientService,
+    private readonly oauthService: OAuthService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
   ) {}
 
   /**
@@ -109,6 +123,39 @@ export class ContactEmailService {
       total,
       hasMore,
       nextCursor: hasMore ? data[data.length - 1]?.id : undefined,
+    };
+  }
+
+  /**
+   * Get a single email by ID with full body content
+   */
+  async getEmailById(userId: string, contactId: string, emailId: string): Promise<ContactEmail> {
+    // Verify contact belongs to user
+    const contact = await this.prisma.contact.findFirst({
+      where: { id: contactId, userId, deletedAt: null },
+    });
+
+    if (!contact) {
+      throw new NotFoundException('Contact not found');
+    }
+
+    const email = await this.prisma.emailThread.findFirst({
+      where: { id: emailId, contactId },
+    });
+
+    if (!email) {
+      throw new NotFoundException('Email not found');
+    }
+
+    return {
+      id: email.id,
+      threadId: email.threadId,
+      subject: email.subject,
+      snippet: email.snippet,
+      body: email.body,
+      direction: email.direction,
+      occurredAt: email.occurredAt,
+      externalId: email.externalId,
     };
   }
 
@@ -214,6 +261,13 @@ export class ContactEmailService {
           where: { id: contactId },
           data: { lastContact: latestEmail.receivedAt },
         });
+
+        // Recalculate relationship score after email sync
+        try {
+          await this.relationshipScoreService.updateContactScore(contactId);
+        } catch (error) {
+          this.logger.warn(`Failed to update relationship score for contact ${contactId}:`, error);
+        }
       }
 
       return syncedCount;
@@ -236,17 +290,36 @@ export class ContactEmailService {
       throw new BadRequestException('Gmail access token not available');
     }
 
-    // Check if token is expired or about to expire
-    if (integration.expiresAt && integration.expiresAt < new Date(Date.now() + 5 * 60 * 1000)) {
+    // Check if token is expired or about to expire (5 min buffer)
+    if (
+      integration.expiresAt &&
+      new Date() >= new Date(integration.expiresAt.getTime() - 5 * 60 * 1000)
+    ) {
       if (!integration.refreshToken) {
-        throw new BadRequestException('Gmail refresh token not available');
+        throw new BadRequestException('Gmail refresh token not available. Please reconnect.');
       }
 
-      // TODO: Implement token refresh using gmailClient
-      this.logger.warn('Token refresh not yet implemented');
+      this.logger.log('Access token expired, refreshing...');
+
+      const refreshToken = this.oauthService.decryptToken(integration.refreshToken);
+      const newTokens = await this.oauthService.refreshAccessToken(refreshToken, 'google');
+
+      const encryptedAccessToken = this.oauthService.encryptToken(newTokens.access_token);
+
+      // Update integration with new token
+      await this.prisma.integration.update({
+        where: { id: integration.id },
+        data: {
+          accessToken: encryptedAccessToken,
+          expiresAt: new Date(Date.now() + newTokens.expires_in * 1000),
+        },
+      });
+
+      return newTokens.access_token;
     }
 
-    return integration.accessToken;
+    // Decrypt token before returning
+    return this.oauthService.decryptToken(integration.accessToken);
   }
 
   /**
@@ -281,5 +354,87 @@ export class ContactEmailService {
       occurredAt: e.occurredAt,
       externalId: e.externalId,
     }));
+  }
+
+  /**
+   * Stream emails with progressive loading (SSE)
+   * Returns emails one by one for progressive UI updates
+   */
+  streamEmailsWithSummaries(
+    userId: string,
+    contactId: string,
+    regenerateMissing = false,
+  ): Observable<MessageEvent> {
+    const subject = new Subject<MessageEvent>();
+
+    // Run async processing in background
+    this.processEmailsForStreaming(userId, contactId, regenerateMissing, subject);
+
+    return subject.asObservable();
+  }
+
+  /**
+   * Internal method to process emails and emit them via SSE
+   */
+  private async processEmailsForStreaming(
+    userId: string,
+    contactId: string,
+    regenerateMissing: boolean,
+    subject: Subject<MessageEvent>,
+  ): Promise<void> {
+    try {
+      // Verify contact belongs to user
+      const contact = await this.prisma.contact.findFirst({
+        where: { id: contactId, userId, deletedAt: null },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+
+      if (!contact) {
+        subject.error(new NotFoundException('Contact not found'));
+        return;
+      }
+
+      // Get all emails for this contact
+      const emails = await this.prisma.emailThread.findMany({
+        where: { contactId },
+        orderBy: { occurredAt: 'desc' },
+        take: 100, // Limit for streaming
+      });
+
+      // Send initial count
+      subject.next({
+        data: JSON.stringify({ type: 'init', total: emails.length }),
+      });
+
+      // Process each email
+      for (const [index, email] of emails.entries()) {
+        // Emit the email
+        subject.next({
+          data: JSON.stringify({
+            type: 'email',
+            index,
+            email: {
+              id: email.id,
+              threadId: email.threadId,
+              subject: email.subject,
+              snippet: email.snippet,
+              direction: email.direction,
+              occurredAt: email.occurredAt,
+              externalId: email.externalId,
+            },
+          }),
+        });
+      }
+
+      // Send completion event
+      subject.next({
+        data: JSON.stringify({ type: 'complete', total: emails.length }),
+      });
+
+      subject.complete();
+    } catch (error) {
+      this.logger.error(`Error streaming emails: ${error}`);
+      subject.error(error);
+    }
   }
 }

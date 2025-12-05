@@ -1,35 +1,38 @@
+import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import {
-  Injectable,
   BadRequestException,
-  UnauthorizedException,
-  NotFoundException,
+  Inject,
+  Injectable,
   Logger,
+  NotFoundException,
+  UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { PrismaService } from '../../../shared/database/prisma.service';
-import { OAuthService } from '../shared/oauth.service';
 import { DeduplicationService } from '../shared/deduplication.service';
-import { GraphApiService } from './services/graph-api.service';
-import { ConflictResolverService } from './services/conflict-resolver.service';
+import { OAuthService } from '../shared/oauth.service';
 import {
-  ImportContactsDto,
-  ImportContactsResponseDto,
-  SyncContactsResponseDto,
-  OAuthInitiateResponseDto,
-  OAuthCallbackResponseDto,
-  DisconnectIntegrationResponseDto,
-  IntegrationStatusResponseDto,
   BidirectionalSyncResponseDto,
-  SharedFoldersResponseDto,
   ConflictResolutionDto,
   ConflictResolutionResponseDto,
+  DisconnectIntegrationResponseDto,
+  ImportContactsDto,
+  ImportContactsResponseDto,
+  IntegrationStatusResponseDto,
+  OAuthCallbackResponseDto,
+  OAuthInitiateResponseDto,
+  SharedFoldersResponseDto,
+  SyncContactsResponseDto,
 } from './dto/import-contacts.dto';
 import {
-  ImportPreviewResponseDto,
-  ImportPreviewQueryDto,
-  PreviewContactDto,
   DuplicateMatchDto,
+  ImportPreviewQueryDto,
+  ImportPreviewResponseDto,
   ImportSummaryDto,
+  PreviewContactDto,
 } from './dto/import-preview.dto';
+import { ConflictResolverService } from './services/conflict-resolver.service';
+import { GraphApiService } from './services/graph-api.service';
 
 interface MicrosoftContactsResponse {
   value?: any[];
@@ -71,6 +74,8 @@ export class MicrosoftContactsService {
     private readonly deduplicationService: DeduplicationService,
     private readonly graphApiService: GraphApiService,
     private readonly conflictResolverService: ConflictResolverService,
+    @Inject(forwardRef(() => RelationshipScoreService))
+    private readonly relationshipScoreService: RelationshipScoreService,
   ) {}
 
   /**
@@ -194,7 +199,7 @@ export class MicrosoftContactsService {
 
     try {
       const response = await this.graphApiService.getContacts(accessToken, {
-        top: options?.pageSize || 100,
+        top: options?.pageSize || 999,
         nextLink: options?.nextLink,
         deltaLink: options?.deltaLink,
         folderId: options?.folderId,
@@ -408,6 +413,7 @@ export class MicrosoftContactsService {
     let skipped = 0;
     let updated = 0;
     const errors: any[] = [];
+    const importedContactIds: string[] = [];
 
     // Use transaction for atomic import
     await this.prisma.$transaction(async (tx) => {
@@ -469,6 +475,7 @@ export class MicrosoftContactsService {
                 source: 'MICROSOFT_CONTACTS',
               },
             });
+            importedContactIds.push(existingContact.id);
             updated++;
           } else if (!existingContact) {
             // Create new contact
@@ -486,6 +493,8 @@ export class MicrosoftContactsService {
                 source: 'MICROSOFT_CONTACTS',
               },
             });
+
+            importedContactIds.push(createdContact.id);
 
             // Create integration link
             await tx.integrationLink.create({
@@ -511,6 +520,18 @@ export class MicrosoftContactsService {
         }
       }
     });
+
+    // Calculate relationship scores for imported contacts
+    if (importedContactIds.length > 0) {
+      try {
+        await this.relationshipScoreService.recalculateForContacts(importedContactIds);
+        this.logger.log(
+          `Calculated relationship scores for ${importedContactIds.length} imported contacts`,
+        );
+      } catch (error) {
+        this.logger.warn(`Failed to calculate relationship scores after import: ${error}`);
+      }
+    }
 
     const duration = Date.now() - startTime;
 

@@ -30,10 +30,7 @@ export class NotesController {
   @ApiOperation({ summary: 'Get all notes for a contact' })
   @ApiResponse({ status: 200, description: 'Notes retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Contact not found' })
-  async getNotesForContact(
-    @CurrentUser() user: any,
-    @Param('contactId') contactId: string,
-  ) {
+  async getNotesForContact(@CurrentUser() user: any, @Param('contactId') contactId: string) {
     return this.notesService.getNotesForContact(user.id, contactId);
   }
 
@@ -105,4 +102,5 @@ export class NotesController {
     return this.notesService.togglePin(user.id, noteId);
   }
 }
+
 

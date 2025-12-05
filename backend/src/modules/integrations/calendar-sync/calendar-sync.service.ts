@@ -1,26 +1,39 @@
 import {
+  BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-  GoogleCalendarClientService,
-  FetchEventsOptions,
-} from './services/google-calendar-client.service';
-import { OutlookCalendarClientService } from './services/outlook-calendar-client.service';
-import { AttendeeMatcherService } from './services/attendee-matcher.service';
+  CalendarConfigResponseDto,
+  CalendarListResponseDto,
+  UpdateCalendarSelectionDto,
+} from './dto/calendar-config.dto';
 import {
-  CalendarConnectionResponseDto,
   CalendarCallbackResponseDto,
-  CalendarSyncResultDto,
+  CalendarConnectionResponseDto,
   CalendarDisconnectResultDto,
   CalendarStatusResponseDto,
+  CalendarSyncResultDto,
 } from './dto/calendar-connection.dto';
-import { CalendarEventDto, FetchEventsResponseDto, CalendarAttendeeDto } from './dto/calendar-event.dto';
+import {
+  CalendarAttendeeDto,
+  CalendarEventDto,
+  FetchEventsResponseDto,
+} from './dto/calendar-event.dto';
 import { MeetingNotesResponseDto } from './dto/meeting-notes.dto';
+import { CalendarSyncJob } from './jobs/calendar-sync.job';
+import { AttendeeMatcherService } from './services/attendee-matcher.service';
+import { CalendarContactImporterService } from './services/calendar-contact-importer.service';
+import {
+  FetchEventsOptions,
+  GoogleCalendarClientService,
+} from './services/google-calendar-client.service';
+import { OutlookCalendarClientService } from './services/outlook-calendar-client.service';
 
 /**
  * Options for fetching events
@@ -37,9 +50,7 @@ export interface FetchEventsServiceOptions {
 @Injectable()
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
-  private readonly GOOGLE_CALENDAR_SCOPES = [
-    'https://www.googleapis.com/auth/calendar.readonly',
-  ];
+  private readonly GOOGLE_CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
   private readonly stateStore = new Map<string, { userId: string; timestamp: number }>();
 
   constructor(
@@ -48,6 +59,10 @@ export class CalendarSyncService {
     private readonly googleCalendarClient: GoogleCalendarClientService,
     private readonly outlookCalendarClient: OutlookCalendarClientService,
     private readonly attendeeMatcher: AttendeeMatcherService,
+    @Inject(forwardRef(() => CalendarSyncJob))
+    private readonly calendarSyncJob: CalendarSyncJob,
+    @Inject(forwardRef(() => CalendarContactImporterService))
+    private readonly calendarContactImporter: CalendarContactImporterService,
   ) {}
 
   /**
@@ -55,16 +70,15 @@ export class CalendarSyncService {
    * @param userId - User ID initiating the connection
    * @returns OAuth URL and state for CSRF protection
    */
-  async connectGoogleCalendar(
-    userId: string,
-  ): Promise<CalendarConnectionResponseDto> {
+  async connectGoogleCalendar(userId: string): Promise<CalendarConnectionResponseDto> {
     this.logger.log(`Initiating Google Calendar OAuth for user ${userId}`);
 
     const authUrl = this.oauthService.generateAuthUrl({
       scopes: this.GOOGLE_CALENDAR_SCOPES,
       userId,
       provider: 'google',
-      usePKCE: true,
+      usePKCE: false, // PKCE not required for server-side apps with client_secret
+      integration: 'google-calendar',
     });
 
     // Extract state from URL or generate one
@@ -99,9 +113,7 @@ export class CalendarSyncService {
    * @param userId - User ID initiating the connection
    * @returns OAuth URL and state for CSRF protection
    */
-  async connectOutlookCalendar(
-    userId: string,
-  ): Promise<CalendarConnectionResponseDto> {
+  async connectOutlookCalendar(userId: string): Promise<CalendarConnectionResponseDto> {
     this.logger.log(`Initiating Outlook Calendar OAuth for user ${userId}`);
 
     const scopes = ['Calendars.Read', 'offline_access'];
@@ -110,7 +122,8 @@ export class CalendarSyncService {
       scopes,
       userId,
       provider: 'microsoft',
-      usePKCE: true,
+      usePKCE: false, // PKCE not required for server-side apps with client_secret
+      integration: 'outlook-calendar',
     });
 
     // Extract state from URL or generate one
@@ -134,54 +147,44 @@ export class CalendarSyncService {
 
   /**
    * Handle OAuth callback and exchange code for tokens
-   * @param userId - User ID from the authenticated request
    * @param code - Authorization code from OAuth callback
    * @param state - State parameter for CSRF validation
    * @param provider - OAuth provider ('google' or 'microsoft')
    * @returns Callback result with integration ID
    */
   async handleOAuthCallback(
-    userId: string,
     code: string,
     state: string,
     provider: 'google' | 'microsoft',
   ): Promise<CalendarCallbackResponseDto> {
-    this.logger.log(`Handling OAuth callback for user ${userId}, provider: ${provider}`);
-
-    // Validate state parameter - check internal store first
+    // Extract userId from the stored state (user is not authenticated in callback)
     const storedState = this.stateStore.get(state);
-    if (storedState) {
-      // Check state ownership
-      if (storedState.userId !== userId) {
-        throw new BadRequestException('Invalid state parameter');
-      }
-      // Check state expiration (10 minutes)
-      if (Date.now() - storedState.timestamp > 10 * 60 * 1000) {
-        this.stateStore.delete(state);
-        throw new BadRequestException('State parameter expired');
-      }
-      // Clean up used state
-      this.stateStore.delete(state);
-    } else {
-      // For callback handling - state might not be in internal store
-      // if the flow started from a different instance or during tests
-      // Validate using OAuthService if available
-      if (this.oauthService.validateState && !this.oauthService.validateState(state, userId)) {
-        throw new BadRequestException('Invalid state parameter');
-      }
+    if (!storedState) {
+      throw new BadRequestException('Invalid or expired state parameter');
     }
+
+    // Check state expiration (10 minutes)
+    if (Date.now() - storedState.timestamp > 10 * 60 * 1000) {
+      this.stateStore.delete(state);
+      throw new BadRequestException('Invalid or expired state parameter');
+    }
+
+    // Extract userId and clean up used state
+    const userId = storedState.userId;
+    this.stateStore.delete(state);
+
+    this.logger.log(`Handling OAuth callback for user ${userId}, provider: ${provider}`);
 
     try {
       // Exchange code for tokens
       const tokens = await this.oauthService.exchangeCodeForTokens({
         code,
         provider,
+        integration: provider === 'google' ? 'google-calendar' : 'outlook-calendar',
       });
 
       // Encrypt tokens
-      const encryptedAccessToken = this.oauthService.encryptToken(
-        tokens.access_token,
-      );
+      const encryptedAccessToken = this.oauthService.encryptToken(tokens.access_token);
       const encryptedRefreshToken = tokens.refresh_token
         ? this.oauthService.encryptToken(tokens.refresh_token)
         : null;
@@ -190,10 +193,8 @@ export class CalendarSyncService {
       const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
       // Determine integration type
-      const integrationType =
-        provider === 'google' ? 'GOOGLE_CALENDAR' : 'OUTLOOK';
-      const integrationName =
-        provider === 'google' ? 'Google Calendar' : 'Outlook Calendar';
+      const integrationType = provider === 'google' ? 'GOOGLE_CALENDAR' : 'OUTLOOK';
+      const integrationName = provider === 'google' ? 'Google Calendar' : 'Outlook Calendar';
 
       // Check for existing integration
       const existingIntegration = await this.prisma.integration.findUnique({
@@ -232,38 +233,18 @@ export class CalendarSyncService {
       }
 
       // Create calendar sync config
+      // Create calendar sync config if it doesn't exist
+      // syncEnabled stays false until user selects calendars
       const existingSyncConfig = await this.prisma.calendarSyncConfig.findUnique({
         where: { userId },
       });
 
       if (!existingSyncConfig) {
-        // Only include the calendar ID for the relevant provider
-        const syncConfigData: Record<string, unknown> = {
-          userId,
-          syncEnabled: true,
-        };
-        if (provider === 'google') {
-          syncConfigData.googleCalendarId = 'primary';
-        } else {
-          syncConfigData.outlookCalendarId = 'primary';
-        }
-
         await this.prisma.calendarSyncConfig.create({
-          data: syncConfigData as {
-            userId: string;
-            syncEnabled: boolean;
-            googleCalendarId?: string;
-            outlookCalendarId?: string;
-          },
-        });
-      } else {
-        await this.prisma.calendarSyncConfig.update({
-          where: { userId },
           data: {
-            syncEnabled: true,
-            ...(provider === 'google'
-              ? { googleCalendarId: 'primary' }
-              : { outlookCalendarId: 'primary' }),
+            userId,
+            syncEnabled: false, // User needs to select calendars first
+            selectedCalendarIds: [],
           },
         });
       }
@@ -308,15 +289,13 @@ export class CalendarSyncService {
     if (type === 'upcoming') {
       fetchOptions.timeMin = now;
       // Default: next 30 days
-      fetchOptions.timeMax =
-        options?.endDate || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      fetchOptions.timeMax = options?.endDate || new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     } else {
       // Past events
       fetchOptions.timeMax = now;
       // Default: last 30 days
       fetchOptions.timeMin =
-        options?.startDate ||
-        new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        options?.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       if (options?.endDate) {
         fetchOptions.timeMax = options.endDate;
       }
@@ -325,10 +304,7 @@ export class CalendarSyncService {
     try {
       // Fetch events based on integration type
       if (integration.type === 'GOOGLE_CALENDAR') {
-        const response = await this.googleCalendarClient.fetchEvents(
-          accessToken,
-          fetchOptions,
-        );
+        const response = await this.googleCalendarClient.fetchEvents(accessToken, fetchOptions);
 
         // Transform raw Google events if needed (for test compatibility)
         const events = this.transformGoogleEvents(response.items);
@@ -343,14 +319,11 @@ export class CalendarSyncService {
 
       // Outlook Calendar support
       if (integration.type === 'OUTLOOK') {
-        const response = await this.outlookCalendarClient.fetchEvents(
-          accessToken,
-          {
-            startDateTime: fetchOptions.timeMin,
-            endDateTime: fetchOptions.timeMax,
-            top: fetchOptions.maxResults,
-          },
-        );
+        const response = await this.outlookCalendarClient.fetchEvents(accessToken, {
+          startDateTime: fetchOptions.timeMin,
+          endDateTime: fetchOptions.timeMax,
+          top: fetchOptions.maxResults,
+        });
 
         return {
           events: response.value,
@@ -425,23 +398,17 @@ export class CalendarSyncService {
     options?: { autoCreate?: boolean },
   ) {
     // First match existing contacts
-    const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(
-      userId,
-      attendees,
-    );
+    const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(userId, attendees);
 
     // If autoCreate is enabled, create contacts for unmatched attendees
-    if (options?.autoCreate && matchedContacts.length < attendees.filter(a => a.email).length) {
-      const matchedEmails = new Set(matchedContacts.map(c => c.email?.toLowerCase()));
+    if (options?.autoCreate && matchedContacts.length < attendees.filter((a) => a.email).length) {
+      const matchedEmails = new Set(matchedContacts.map((c) => c.email?.toLowerCase()));
       const unmatchedAttendees = attendees.filter(
-        a => a.email && !matchedEmails.has(a.email.toLowerCase())
+        (a) => a.email && !matchedEmails.has(a.email.toLowerCase()),
       );
 
       for (const attendee of unmatchedAttendees) {
-        const newContact = await this.attendeeMatcher.createContactFromAttendee(
-          userId,
-          attendee,
-        );
+        const newContact = await this.attendeeMatcher.createContactFromAttendee(userId, attendee);
         matchedContacts.push(newContact);
       }
     }
@@ -495,10 +462,7 @@ export class CalendarSyncService {
     }
 
     // Match attendees to contacts
-    const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(
-      userId,
-      attendees,
-    );
+    const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(userId, attendees);
 
     // Create interaction with participants
     const interaction = await this.prisma.interaction.create({
@@ -570,9 +534,7 @@ export class CalendarSyncService {
     }
 
     // Filter contacts that need updating (meeting is more recent)
-    const contactsToUpdate = contacts.filter(
-      (c) => !c.lastContact || c.lastContact < meetingDate,
-    );
+    const contactsToUpdate = contacts.filter((c) => !c.lastContact || c.lastContact < meetingDate);
 
     if (contactsToUpdate.length === 0) return;
 
@@ -586,9 +548,7 @@ export class CalendarSyncService {
       },
     });
 
-    this.logger.debug(
-      `Updated lastContact for ${contactsToUpdate.length} contacts`,
-    );
+    this.logger.debug(`Updated lastContact for ${contactsToUpdate.length} contacts`);
   }
 
   /**
@@ -653,9 +613,7 @@ export class CalendarSyncService {
     const events = this.transformGoogleEvents(response.items);
 
     // Filter out past events
-    const upcomingEvents = events.filter(
-      (event) => new Date(event.startTime) > now,
-    );
+    const upcomingEvents = events.filter((event) => new Date(event.startTime) > now);
 
     let synced = 0;
     for (const event of upcomingEvents) {
@@ -701,6 +659,7 @@ export class CalendarSyncService {
 
   /**
    * Sync past events from calendar
+   * Only syncs events with attendees who accepted or responded "maybe"
    * @param userId - User ID
    * @param startDate - Start of date range
    * @param endDate - End of date range
@@ -711,27 +670,51 @@ export class CalendarSyncService {
     startDate: Date,
     endDate: Date,
   ): Promise<CalendarSyncResultDto> {
+    this.logger.debug(
+      `[syncPastEvents] Starting for user ${userId}, range: ${startDate.toISOString()} to ${endDate.toISOString()}`,
+    );
+
     const integration = await this.getActiveIntegration(userId);
     const accessToken = await this.getValidAccessToken(integration);
 
     const response = await this.googleCalendarClient.fetchEvents(accessToken, {
       timeMin: startDate,
       timeMax: endDate,
-      maxResults: 250,
+      maxResults: 2500,
     });
 
     // Transform raw events if needed (for test compatibility)
-    const events = this.transformGoogleEvents(response.items);
+    const allEvents = this.transformGoogleEvents(response.items);
+
+    // Filter to only include past events
+    const now = new Date();
+    const events = allEvents.filter((event) => new Date(event.startTime) < now);
+
+    this.logger.debug(
+      `[syncPastEvents] Fetched ${allEvents.length} events, ${events.length} are past events`,
+    );
 
     let synced = 0;
+    let skippedNoValidAttendees = 0;
+
     for (const event of events) {
       try {
-        // Match attendees to contacts
-        const matchedContacts =
-          await this.attendeeMatcher.matchAttendeesToContacts(
-            userId,
-            event.attendees || [],
+        // Filter attendees to only include those who accepted or responded "maybe"
+        const validAttendees = this.filterAcceptedAttendees(event.attendees || []);
+
+        if (validAttendees.length === 0) {
+          skippedNoValidAttendees++;
+          this.logger.debug(
+            `[syncPastEvents] Skipping event ${event.externalId} - no attendees accepted/tentative`,
           );
+          continue;
+        }
+
+        // Match attendees to contacts (only valid attendees)
+        const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(
+          userId,
+          validAttendees,
+        );
 
         // Upsert interaction
         await this.prisma.interaction.upsert({
@@ -778,10 +761,14 @@ export class CalendarSyncService {
         synced++;
       } catch (error) {
         this.logger.warn(
-          `Failed to sync past event ${event.externalId}: ${error instanceof Error ? error.message : 'Unknown'}`,
+          `[syncPastEvents] Failed to sync event ${event.externalId}: ${error instanceof Error ? error.message : 'Unknown'}`,
         );
       }
     }
+
+    this.logger.log(
+      `[syncPastEvents] Completed for user ${userId}: ${synced} synced, ${skippedNoValidAttendees} skipped (no valid attendees)`,
+    );
 
     return {
       synced,
@@ -791,16 +778,20 @@ export class CalendarSyncService {
 
   /**
    * Perform incremental sync using sync token
+   * Only syncs past events with attendees who accepted or responded "maybe"
    * @param userId - User ID
    * @returns Sync result
    */
   async incrementalSync(userId: string): Promise<CalendarSyncResultDto> {
+    this.logger.debug(`[incrementalSync] Starting for user ${userId}`);
+
     // Check sync config
     const syncConfig = await this.prisma.calendarSyncConfig.findUnique({
       where: { userId },
     });
 
     if (!syncConfig || !syncConfig.syncEnabled) {
+      this.logger.debug(`[incrementalSync] Sync disabled or no config for user ${userId}`);
       return {
         synced: 0,
         skipped: true,
@@ -811,34 +802,68 @@ export class CalendarSyncService {
     const integration = await this.getActiveIntegration(userId);
     const accessToken = await this.getValidAccessToken(integration);
 
-    let response;
-    try {
-      response = await this.googleCalendarClient.fetchEvents(accessToken, {
-        syncToken: syncConfig.syncToken || undefined,
-        maxResults: 250,
-      });
-    } catch (error: any) {
-      // Sync token expired, perform full sync
-      if (error?.status === 410) {
-        this.logger.log('Sync token expired, performing full sync');
+    const syncPeriodDays = syncConfig.syncPeriodDays || 30;
+    let response: { items: any[]; nextSyncToken?: string };
+
+    // Check if we have a sync token (incremental sync) or need full sync
+    if (syncConfig.syncToken) {
+      try {
         response = await this.googleCalendarClient.fetchEvents(accessToken, {
-          timeMin: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-          maxResults: 250,
+          syncToken: syncConfig.syncToken,
+          maxResults: 2500,
         });
-      } else {
-        throw error;
+      } catch (error: any) {
+        // Sync token expired, perform full sync with period limit and pagination
+        if (error?.status === 410) {
+          this.logger.log('[incrementalSync] Sync token expired, performing full sync with pagination');
+          response = await this.fetchAllEventsWithPagination(
+            accessToken,
+            new Date(Date.now() - syncPeriodDays * 24 * 60 * 60 * 1000),
+          );
+        } else {
+          throw error;
+        }
       }
+    } else {
+      // First sync - use syncPeriodDays to limit date range with pagination
+      this.logger.log(
+        `[incrementalSync] First sync for user ${userId}, using ${syncPeriodDays} days period with pagination`,
+      );
+      response = await this.fetchAllEventsWithPagination(
+        accessToken,
+        new Date(Date.now() - syncPeriodDays * 24 * 60 * 60 * 1000),
+      );
     }
 
     // Transform raw events if needed (for test compatibility)
-    const events = this.transformGoogleEvents(response.items);
+    const allEvents = this.transformGoogleEvents(response.items);
+
+    // Filter to only include past events
+    const now = new Date();
+    const events = allEvents.filter((event) => new Date(event.startTime) < now);
+
+    this.logger.debug(
+      `[incrementalSync] Fetched ${allEvents.length} events, ${events.length} are past events`,
+    );
 
     let synced = 0;
     let added = 0;
     let updated = 0;
+    let skippedNoValidAttendees = 0;
 
     for (const event of events) {
       try {
+        // Filter attendees to only include those who accepted or responded "maybe"
+        const validAttendees = this.filterAcceptedAttendees(event.attendees || []);
+
+        if (validAttendees.length === 0) {
+          skippedNoValidAttendees++;
+          this.logger.debug(
+            `[incrementalSync] Skipping event ${event.externalId} - no attendees accepted/tentative`,
+          );
+          continue;
+        }
+
         // Check if interaction exists
         const existing = await this.prisma.interaction.findUnique({
           where: {
@@ -850,12 +875,11 @@ export class CalendarSyncService {
           },
         });
 
-        // Match attendees
-        const matchedContacts =
-          await this.attendeeMatcher.matchAttendeesToContacts(
-            userId,
-            event.attendees || [],
-          );
+        // Match attendees to contacts (only valid attendees)
+        const matchedContacts = await this.attendeeMatcher.matchAttendeesToContacts(
+          userId,
+          validAttendees,
+        );
 
         if (existing) {
           // Update existing
@@ -892,9 +916,9 @@ export class CalendarSyncService {
           added++;
         }
 
-        // Update lastContact for past events
+        // Update lastContact for matched contacts
         const eventTime = new Date(event.startTime);
-        if (eventTime < new Date() && matchedContacts.length > 0) {
+        if (matchedContacts.length > 0) {
           await this.updateLastContactDate(
             userId,
             matchedContacts.map((c) => c.id),
@@ -905,7 +929,7 @@ export class CalendarSyncService {
         synced++;
       } catch (error) {
         this.logger.warn(
-          `Failed to sync event ${event.externalId}: ${error instanceof Error ? error.message : 'Unknown'}`,
+          `[incrementalSync] Failed to sync event ${event.externalId}: ${error instanceof Error ? error.message : 'Unknown'}`,
         );
       }
     }
@@ -921,12 +945,32 @@ export class CalendarSyncService {
       });
     }
 
+    this.logger.log(
+      `[incrementalSync] Completed for user ${userId}: ${synced} synced, ${added} added, ${updated} updated, ${skippedNoValidAttendees} skipped (no valid attendees)`,
+    );
+
     return {
       synced,
       added,
       updated,
       syncedAt: new Date(),
     };
+  }
+
+  /**
+   * Filter attendees to only include those who accepted or responded "maybe" (tentative)
+   * @param attendees - List of attendees
+   * @returns Filtered attendees
+   */
+  private filterAcceptedAttendees(attendees: CalendarAttendeeDto[]): CalendarAttendeeDto[] {
+    return attendees.filter((attendee) => {
+      // Skip organizers (typically the user who owns the calendar)
+      if (attendee.organizer) return false;
+
+      // Only include attendees who accepted or responded "maybe"
+      const responseStatus = attendee.responseStatus?.toLowerCase();
+      return responseStatus === 'accepted' || responseStatus === 'tentative';
+    });
   }
 
   /**
@@ -941,15 +985,9 @@ export class CalendarSyncService {
     let tokensRevoked = false;
     try {
       if (integration.accessToken) {
-        const accessToken = this.oauthService.decryptToken(
-          integration.accessToken,
-        );
-        const provider =
-          integration.type === 'GOOGLE_CALENDAR' ? 'google' : 'microsoft';
-        tokensRevoked = await this.oauthService.revokeToken(
-          accessToken,
-          provider,
-        );
+        const accessToken = this.oauthService.decryptToken(integration.accessToken);
+        const provider = integration.type === 'GOOGLE_CALENDAR' ? 'google' : 'microsoft';
+        tokensRevoked = await this.oauthService.revokeToken(accessToken, provider);
       }
     } catch (error) {
       this.logger.warn(
@@ -974,9 +1012,7 @@ export class CalendarSyncService {
     return {
       success: true,
       tokensRevoked,
-      warning: tokensRevoked
-        ? undefined
-        : 'Token revocation failed but integration removed',
+      warning: tokensRevoked ? undefined : 'Token revocation failed but integration removed',
     };
   }
 
@@ -1009,7 +1045,8 @@ export class CalendarSyncService {
     }
 
     // Check if we have an active integration
-    const isActive = integration && (integration.isActive === undefined || integration.isActive === true);
+    const isActive =
+      integration && (integration.isActive === undefined || integration.isActive === true);
 
     if (!isActive) {
       return {
@@ -1034,8 +1071,9 @@ export class CalendarSyncService {
       },
     });
 
-    const provider =
-      integration!.type === 'GOOGLE_CALENDAR' ? 'google' : 'outlook';
+    const provider = integration!.type === 'GOOGLE_CALENDAR' ? 'google' : 'outlook';
+    const selectedCalendarIds = syncConfig?.selectedCalendarIds || [];
+    const isConfigured = selectedCalendarIds.length > 0;
 
     return {
       isConnected: true,
@@ -1043,10 +1081,228 @@ export class CalendarSyncService {
       totalMeetings: meetings?.length || 0,
       lastSyncAt: syncConfig?.lastSyncAt || undefined,
       syncEnabled: syncConfig?.syncEnabled || false,
+      isConfigured,
+      selectedCalendarIds,
     };
   }
 
+  /**
+   * Get list of available calendars for the user
+   * @param userId - User ID
+   * @returns List of calendars
+   */
+  async getAvailableCalendars(userId: string): Promise<CalendarListResponseDto> {
+    const integration = await this.getActiveIntegration(userId);
+    const accessToken = await this.getValidAccessToken(integration);
+
+    if (integration.type !== 'GOOGLE_CALENDAR') {
+      throw new BadRequestException('Calendar list is only supported for Google Calendar');
+    }
+
+    const calendars = await this.googleCalendarClient.listCalendars(accessToken);
+
+    return {
+      calendars: calendars.map((cal) => ({
+        id: cal.id,
+        name: cal.summary,
+        description: cal.description,
+        isPrimary: cal.primary || false,
+        color: cal.backgroundColor,
+      })),
+    };
+  }
+
+  /**
+   * Get calendar sync configuration
+   * @param userId - User ID
+   * @returns Calendar configuration
+   */
+  async getCalendarConfig(userId: string): Promise<CalendarConfigResponseDto> {
+    // Make sure user has an active integration
+    await this.getActiveIntegration(userId);
+
+    const syncConfig = await this.prisma.calendarSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    const selectedCalendarIds = syncConfig?.selectedCalendarIds || [];
+
+    return {
+      selectedCalendarIds,
+      syncEnabled: syncConfig?.syncEnabled || false,
+      isConfigured: selectedCalendarIds.length > 0,
+      syncPeriodDays: syncConfig?.syncPeriodDays || 30,
+      lastSyncAt: syncConfig?.lastSyncAt || undefined,
+      lastContactImportAt: syncConfig?.lastContactImportAt || undefined,
+    };
+  }
+
+  /**
+   * Update calendar selection and enable sync
+   * Triggers automatic event sync and contact import when calendars are selected
+   * @param userId - User ID
+   * @param dto - Selected calendar IDs and sync period
+   * @returns Updated configuration
+   */
+  async updateCalendarSelection(
+    userId: string,
+    dto: UpdateCalendarSelectionDto,
+  ): Promise<CalendarConfigResponseDto> {
+    // Make sure user has an active integration
+    await this.getActiveIntegration(userId);
+
+    const isConfigured = dto.selectedCalendarIds.length > 0;
+    const syncPeriodDays = dto.syncPeriodDays || 30;
+
+    this.logger.debug(
+      `[updateCalendarSelection] Starting for user ${userId}, calendars: ${dto.selectedCalendarIds.length}, syncPeriodDays: ${syncPeriodDays}`,
+    );
+
+    // Update or create sync config
+    const syncConfig = await this.prisma.calendarSyncConfig.upsert({
+      where: { userId },
+      create: {
+        userId,
+        selectedCalendarIds: dto.selectedCalendarIds,
+        syncEnabled: isConfigured,
+        syncPeriodDays,
+      },
+      update: {
+        selectedCalendarIds: dto.selectedCalendarIds,
+        syncEnabled: isConfigured,
+        syncPeriodDays,
+      },
+    });
+
+    this.logger.log(
+      `[updateCalendarSelection] Updated calendar selection for user ${userId}: ${dto.selectedCalendarIds.length} calendars selected, syncPeriodDays: ${syncPeriodDays}`,
+    );
+
+    // Trigger automatic sync and import when calendars are selected
+    if (isConfigured) {
+      this.logger.debug(
+        `[updateCalendarSelection] Calendars configured, triggering automatic sync and import for user ${userId}`,
+      );
+
+      // Run sync and import asynchronously (don't wait for completion)
+      this.triggerSyncAndImport(userId, syncPeriodDays).catch((error) => {
+        this.logger.error(
+          `[updateCalendarSelection] Async sync/import failed for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      });
+    }
+
+    return {
+      selectedCalendarIds: syncConfig.selectedCalendarIds,
+      syncEnabled: syncConfig.syncEnabled,
+      isConfigured,
+      syncPeriodDays: syncConfig.syncPeriodDays,
+      lastSyncAt: syncConfig.lastSyncAt || undefined,
+    };
+  }
+
+  /**
+   * Trigger event sync and contact import asynchronously
+   * Uses lastContactImportAt for subsequent imports to avoid duplicate processing
+   * @param userId - User ID
+   * @param syncPeriodDays - Number of days to look back (for first import only)
+   */
+  private async triggerSyncAndImport(userId: string, syncPeriodDays: number): Promise<void> {
+    // Get config to check lastContactImportAt
+    const syncConfig = await this.prisma.calendarSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    let startDate: Date;
+    if (syncConfig?.lastContactImportAt) {
+      // Subsequent import - start from last import date
+      startDate = syncConfig.lastContactImportAt;
+      this.logger.debug(
+        `[triggerSyncAndImport] Subsequent import for user ${userId}, using lastContactImportAt: ${startDate.toISOString()}`,
+      );
+    } else {
+      // First import - use full period
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - syncPeriodDays);
+      this.logger.debug(
+        `[triggerSyncAndImport] First import for user ${userId}, using ${syncPeriodDays} days period`,
+      );
+    }
+    const endDate = new Date(); // Now (only past events)
+
+    this.logger.debug(
+      `[triggerSyncAndImport] Starting for user ${userId}, period: ${startDate.toISOString()} to ${endDate.toISOString()}`,
+    );
+
+    try {
+      // Step 1: Queue immediate calendar event sync
+      this.logger.debug(`[triggerSyncAndImport] Queueing calendar event sync for user ${userId}`);
+      await this.calendarSyncJob.queueImmediateSync(userId, 'incremental');
+
+      // Step 2: Import contacts from calendar events
+      this.logger.debug(`[triggerSyncAndImport] Starting contact import for user ${userId}`);
+      const importResult = await this.calendarContactImporter.importContacts(userId, {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        skipDuplicates: true,
+      });
+
+      this.logger.log(
+        `[triggerSyncAndImport] Completed for user ${userId}: imported ${importResult.imported} contacts, skipped ${importResult.skipped}, failed ${importResult.failed}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[triggerSyncAndImport] Failed for user ${userId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw error;
+    }
+  }
+
   // Private helper methods
+
+  /**
+   * Fetch all events with pagination for full sync scenarios
+   * @param accessToken - Access token for API calls
+   * @param timeMin - Start date for events
+   * @returns Combined response with all events and the last sync token
+   */
+  private async fetchAllEventsWithPagination(
+    accessToken: string,
+    timeMin: Date,
+  ): Promise<{ items: any[]; nextSyncToken?: string }> {
+    const allItems: any[] = [];
+    let pageToken: string | undefined;
+    let lastSyncToken: string | undefined;
+
+    this.logger.debug(
+      `[fetchAllEventsWithPagination] Starting pagination from ${timeMin.toISOString()}`,
+    );
+
+    do {
+      const pageResponse = await this.googleCalendarClient.fetchEvents(accessToken, {
+        timeMin,
+        maxResults: 2500,
+        pageToken,
+      });
+
+      allItems.push(...pageResponse.items);
+      pageToken = pageResponse.nextPageToken;
+      lastSyncToken = pageResponse.nextSyncToken;
+
+      this.logger.debug(
+        `[fetchAllEventsWithPagination] Fetched page with ${pageResponse.items.length} events, total: ${allItems.length}`,
+      );
+    } while (pageToken);
+
+    this.logger.log(
+      `[fetchAllEventsWithPagination] Completed pagination, total events: ${allItems.length}`,
+    );
+
+    return {
+      items: allItems,
+      nextSyncToken: lastSyncToken,
+    };
+  }
 
   /**
    * Get active calendar integration for user
@@ -1063,7 +1319,8 @@ export class CalendarSyncService {
     });
 
     // Check if active (treat undefined isActive as true for backward compatibility)
-    const isGoogleActive = integration && (integration.isActive === undefined || integration.isActive === true);
+    const isGoogleActive =
+      integration && (integration.isActive === undefined || integration.isActive === true);
 
     // If no Google Calendar or inactive, try Outlook
     if (!isGoogleActive) {
@@ -1078,7 +1335,8 @@ export class CalendarSyncService {
     }
 
     // Check if we have an active integration
-    const isOutlookActive = integration && (integration.isActive === undefined || integration.isActive === true);
+    const isOutlookActive =
+      integration && (integration.isActive === undefined || integration.isActive === true);
 
     if (!isGoogleActive && !isOutlookActive) {
       throw new NotFoundException('No active calendar integration found');
@@ -1101,20 +1359,12 @@ export class CalendarSyncService {
         );
       }
 
-      const refreshToken = this.oauthService.decryptToken(
-        integration.refreshToken,
-      );
-      const provider =
-        integration.type === 'GOOGLE_CALENDAR' ? 'google' : 'microsoft';
+      const refreshToken = this.oauthService.decryptToken(integration.refreshToken);
+      const provider = integration.type === 'GOOGLE_CALENDAR' ? 'google' : 'microsoft';
 
-      const newTokens = await this.oauthService.refreshAccessToken(
-        refreshToken,
-        provider,
-      );
+      const newTokens = await this.oauthService.refreshAccessToken(refreshToken, provider);
 
-      const encryptedAccessToken = this.oauthService.encryptToken(
-        newTokens.access_token,
-      );
+      const encryptedAccessToken = this.oauthService.encryptToken(newTokens.access_token);
 
       // Update integration with new token
       await this.prisma.integration.update({
@@ -1131,4 +1381,3 @@ export class CalendarSyncService {
     return this.oauthService.decryptToken(integration.accessToken);
   }
 }
-

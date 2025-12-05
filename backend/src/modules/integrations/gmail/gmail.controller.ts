@@ -55,8 +55,11 @@ export class GmailController {
     description: 'OAuth authorization URL generated',
     type: GmailOAuthInitiateResponseDto,
   })
-  async initiateAuth(@CurrentUser() user: SessionUser): Promise<GmailOAuthInitiateResponseDto> {
-    return this.gmailService.initiateOAuthFlow(user.id);
+  async initiateAuth(
+    @CurrentUser() user: SessionUser,
+    @Query('orgSlug') orgSlug?: string,
+  ): Promise<GmailOAuthInitiateResponseDto> {
+    return this.gmailService.initiateOAuthFlow(user.id, orgSlug);
   }
 
   /**
@@ -80,33 +83,42 @@ export class GmailController {
     @Res() res: Response,
   ): Promise<void> {
     const frontendUrl = this.getFrontendUrl();
-    const redirectBase = `${frontendUrl}/settings/integrations`;
+
+    // Helper function to build redirect URL with optional orgSlug
+    const buildRedirectUrl = (orgSlug?: string) => {
+      if (orgSlug) {
+        return `${frontendUrl}/${orgSlug}/settings/integrations`;
+      }
+      // Fallback to base settings page (will be handled by frontend middleware)
+      return `${frontendUrl}/settings/integrations`;
+    };
 
     try {
       // Validate query parameters
       if (!code || !state) {
         res.redirect(
-          `${redirectBase}?error=missing_params&message=${encodeURIComponent('Missing required parameters')}`,
+          `${buildRedirectUrl()}?error=missing_params&message=${encodeURIComponent('Missing required parameters')}`,
         );
         return;
       }
 
       if (code.trim() === '' || state.trim() === '') {
         res.redirect(
-          `${redirectBase}?error=empty_params&message=${encodeURIComponent('Code and state cannot be empty')}`,
+          `${buildRedirectUrl()}?error=empty_params&message=${encodeURIComponent('Code and state cannot be empty')}`,
         );
         return;
       }
 
       // Process the OAuth callback
       const result = await this.gmailService.handleOAuthCallback(code, state);
+      const redirectUrl = buildRedirectUrl(result.orgSlug);
 
       // Redirect to frontend with success
-      res.redirect(`${redirectBase}?success=gmail&message=${encodeURIComponent(result.message)}`);
+      res.redirect(`${redirectUrl}?success=gmail&message=${encodeURIComponent(result.message)}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       res.redirect(
-        `${redirectBase}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
+        `${buildRedirectUrl()}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
       );
     }
   }

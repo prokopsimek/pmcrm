@@ -121,15 +121,12 @@ export interface IAIService {
   /**
    * Summarize an email thread
    */
-  summarizeEmailThread(
-    subject: string,
-    body: string,
-    contactName: string,
-  ): Promise<string>;
+  summarizeEmailThread(subject: string, body: string, contactName: string): Promise<string>;
 }
 
 /**
  * AI Service injection token
  */
 export const AI_SERVICE = Symbol('AI_SERVICE');
+
 

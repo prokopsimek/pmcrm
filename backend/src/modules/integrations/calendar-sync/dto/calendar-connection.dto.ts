@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsArray, IsDateString } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsOptional, IsString } from 'class-validator';
 
 /**
  * OAuth connection response DTO
@@ -77,4 +77,12 @@ export class CalendarStatusResponseDto {
 
   @IsBoolean()
   syncEnabled: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isConfigured?: boolean; // true if calendars are selected
+
+  @IsOptional()
+  @IsArray()
+  selectedCalendarIds?: string[];
 }

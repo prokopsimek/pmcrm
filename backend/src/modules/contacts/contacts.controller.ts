@@ -1,22 +1,25 @@
 import {
-  Controller,
-  Post,
-  Get,
-  Patch,
-  Delete,
   Body,
+  Controller,
+  Delete,
+  Get,
+  MessageEvent,
   Param,
+  Patch,
+  Post,
   Query,
   Request,
+  Sse,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { ContactsService } from './contacts.service';
-import { ContactEmailService } from '../integrations/email-sync/services/contact-email.service';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Observable } from 'rxjs';
 import { ContactSummaryService } from '../ai/services/contact-summary.service';
+import { ContactEmailService } from '../integrations/email-sync/services/contact-email.service';
+import { ContactsService } from './contacts.service';
 import {
-  CreateContactDto,
   BusinessCardScanDto,
+  CreateContactDto,
   LinkedInEnrichmentDto,
   UpdateContactDto,
 } from './dto';
@@ -37,13 +40,64 @@ export class ContactsController {
   ) {}
 
   /**
-   * GET /api/v1/contacts - List all contacts with optional search
+   * GET /api/v1/contacts - List all contacts with optional search and filters
+   * US-061: Advanced Filtering
    */
   @Get()
-  @ApiOperation({ summary: 'List all contacts' })
-  @ApiQuery({ name: 'search', required: false, description: 'Search by name, email, company' })
+  @ApiOperation({ summary: 'List all contacts with filters' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by name, email' })
   @ApiQuery({ name: 'page', required: false, description: 'Page number' })
   @ApiQuery({ name: 'limit', required: false, description: 'Items per page' })
+  @ApiQuery({
+    name: 'tags',
+    required: false,
+    description: 'Filter by tag names (comma-separated)',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'company',
+    required: false,
+    description: 'Filter by company name (partial match)',
+  })
+  @ApiQuery({
+    name: 'position',
+    required: false,
+    description: 'Filter by position/title (partial match)',
+  })
+  @ApiQuery({
+    name: 'location',
+    required: false,
+    description: 'Filter by location (partial match)',
+  })
+  @ApiQuery({
+    name: 'source',
+    required: false,
+    description: 'Filter by source (MANUAL, IMPORT, GOOGLE_CONTACTS, etc.)',
+  })
+  @ApiQuery({ name: 'hasEmail', required: false, description: 'Filter by has email (true/false)' })
+  @ApiQuery({ name: 'hasPhone', required: false, description: 'Filter by has phone (true/false)' })
+  @ApiQuery({
+    name: 'lastContactedFrom',
+    required: false,
+    description: 'Filter by last contacted after date (ISO)',
+  })
+  @ApiQuery({
+    name: 'lastContactedTo',
+    required: false,
+    description: 'Filter by last contacted before date (ISO)',
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    description: 'Sort by field (lastContact, importance, name, createdAt)',
+    enum: ['lastContact', 'importance', 'name', 'createdAt'],
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    description: 'Sort order (asc, desc)',
+    enum: ['asc', 'desc'],
+  })
   @ApiResponse({ status: 200, description: 'List of contacts' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async findAll(
@@ -51,15 +105,49 @@ export class ContactsController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('tags') tags?: string,
+    @Query('company') company?: string,
+    @Query('position') position?: string,
+    @Query('location') location?: string,
+    @Query('source') source?: string,
+    @Query('hasEmail') hasEmail?: string,
+    @Query('hasPhone') hasPhone?: string,
+    @Query('lastContactedFrom') lastContactedFrom?: string,
+    @Query('lastContactedTo') lastContactedTo?: string,
+    @Query('sortBy') sortBy?: 'lastContact' | 'importance' | 'name' | 'createdAt',
+    @Query('sortOrder') sortOrder?: 'asc' | 'desc',
   ) {
     if (!req.user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
 
+    // Parse filter parameters
+    const parsedTags = tags
+      ? tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined;
+    const parsedHasEmail = hasEmail === 'true' ? true : hasEmail === 'false' ? false : undefined;
+    const parsedHasPhone = hasPhone === 'true' ? true : hasPhone === 'false' ? false : undefined;
+    const parsedLastContactedFrom = lastContactedFrom ? new Date(lastContactedFrom) : undefined;
+    const parsedLastContactedTo = lastContactedTo ? new Date(lastContactedTo) : undefined;
+
     return this.contactsService.getContacts(req.user.id, {
       search,
       page: page ? parseInt(page, 10) : 1,
       limit: limit ? parseInt(limit, 10) : 20,
+      sortBy,
+      sortOrder,
+      tags: parsedTags,
+      company,
+      position,
+      location,
+      source,
+      hasEmail: parsedHasEmail,
+      hasPhone: parsedHasPhone,
+      lastContactedFrom: parsedLastContactedFrom,
+      lastContactedTo: parsedLastContactedTo,
     });
   }
 
@@ -150,6 +238,48 @@ export class ContactsController {
       cursor,
       forceSync: sync === 'true',
     });
+  }
+
+  /**
+   * GET /api/v1/contacts/:id/emails/:emailId - Get single email with full body content
+   */
+  @Get(':id/emails/:emailId')
+  @ApiOperation({ summary: 'Get single email with full body content' })
+  @ApiResponse({ status: 200, description: 'Email with body' })
+  @ApiResponse({ status: 404, description: 'Contact or email not found' })
+  async getEmailById(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Param('emailId') emailId: string,
+  ) {
+    if (!req.user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    return this.contactEmailService.getEmailById(req.user.id, id, emailId);
+  }
+
+  /**
+   * GET /api/v1/contacts/:id/emails/stream - Stream emails with AI summaries (SSE)
+   * Progressively returns emails as their AI summaries are generated
+   */
+  @Sse(':id/emails/stream')
+  @ApiOperation({ summary: 'Stream emails with progressive AI summary generation (SSE)' })
+  @ApiQuery({ name: 'regenerate', required: false, description: 'Regenerate missing AI summaries' })
+  streamEmails(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Query('regenerate') regenerate?: string,
+  ): Observable<MessageEvent> {
+    if (!req.user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+
+    return this.contactEmailService.streamEmailsWithSummaries(
+      req.user.id,
+      id,
+      regenerate === 'true',
+    );
   }
 
   /**

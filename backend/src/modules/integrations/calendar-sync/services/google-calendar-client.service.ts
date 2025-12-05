@@ -1,5 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { CalendarEventDto, CalendarAttendeeDto } from '../dto';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { CalendarAttendeeDto, CalendarEventDto } from '../dto';
 
 /**
  * Options for fetching calendar events from Google Calendar API
@@ -62,6 +62,30 @@ interface GoogleCalendarApiResponse {
   items?: GoogleCalendarEvent[];
   nextPageToken?: string;
   nextSyncToken?: string;
+}
+
+/**
+ * Calendar list item from Google Calendar API
+ */
+export interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  description?: string;
+  primary?: boolean;
+  backgroundColor?: string;
+  foregroundColor?: string;
+  accessRole: 'freeBusyReader' | 'reader' | 'writer' | 'owner';
+  selected?: boolean;
+}
+
+/**
+ * Calendar list API response
+ */
+interface GoogleCalendarListResponse {
+  kind?: string;
+  etag?: string;
+  items?: GoogleCalendarListItem[];
+  nextPageToken?: string;
 }
 
 /**
@@ -130,6 +154,42 @@ export class GoogleCalendarClientService {
       nextPageToken: data.nextPageToken,
       nextSyncToken: data.nextSyncToken,
     };
+  }
+
+  /**
+   * List all calendars accessible by the user
+   * @param accessToken - Valid OAuth access token
+   * @returns List of calendars sorted by: primary first, then by summary name
+   */
+  async listCalendars(accessToken: string): Promise<GoogleCalendarListItem[]> {
+    const url = `${this.CALENDAR_API_BASE}/users/me/calendarList`;
+
+    this.logger.debug('Fetching calendar list');
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      await this.handleApiError(response);
+    }
+
+    const data: GoogleCalendarListResponse = await response.json();
+
+    // Filter to only include calendars with at least reader access
+    const calendars = (data.items || []).filter(
+      (cal) => cal.accessRole === 'reader' || cal.accessRole === 'writer' || cal.accessRole === 'owner',
+    );
+
+    // Sort: primary calendar first, then alphabetically by name
+    return calendars.sort((a, b) => {
+      if (a.primary && !b.primary) return -1;
+      if (!a.primary && b.primary) return 1;
+      return (a.summary || '').localeCompare(b.summary || '');
+    });
   }
 
   /**
