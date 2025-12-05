@@ -11,3 +11,4 @@ export enum TimelineEventType {
   WHATSAPP = 'whatsapp',
   OTHER = 'other',
 }
+

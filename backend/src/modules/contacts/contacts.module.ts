@@ -8,8 +8,8 @@ import { ContactsController, OrganizationsController } from './contacts.controll
 import { ContactsService } from './contacts.service';
 import { RelationshipScoreJob } from './jobs/relationship-score.job';
 import {
-  EnrichmentCreditsController,
-  LinkedInEnrichmentController,
+    EnrichmentCreditsController,
+    LinkedInEnrichmentController,
 } from './linkedin-enrichment.controller';
 import { LinkedInEnrichmentService } from './services/linkedin-enrichment.service';
 import { OcrService } from './services/ocr.service';
@@ -23,7 +23,7 @@ import { RelationshipScoreService } from './services/relationship-score.service'
     ConfigModule,
     ScheduleModule.forRoot(),
     forwardRef(() => EmailSyncModule),
-    AIModule,
+    forwardRef(() => AIModule),
   ],
   providers: [
     ContactsService,

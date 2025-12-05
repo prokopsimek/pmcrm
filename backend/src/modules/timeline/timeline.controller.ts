@@ -55,3 +55,4 @@ export class TimelineController {
     return this.timelineService.getTimeline(userId, contactId, query);
   }
 }
+

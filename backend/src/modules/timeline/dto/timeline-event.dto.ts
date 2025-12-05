@@ -44,3 +44,4 @@ export class TimelineEventDto {
    */
   metadata?: Record<string, unknown>;
 }
+
