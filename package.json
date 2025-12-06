@@ -5,7 +5,7 @@
   "description": "AI-powered SaaS platform for personal business network management",
   "scripts": {
     "dev": "turbo run dev",
-    "start": "pnpm db:migrate:deploy && turbo run start",
+    "start": "pnpm db:migrate:deploy && turbo run start:prod --parallel",
     "start:backend": "pnpm db:migrate:deploy && pnpm --filter backend start:prod",
     "start:frontend": "pnpm --filter frontend start",
     "setup": "pnpm install && pnpm docker:up && sleep 5 && pnpm db:generate && pnpm db:migrate && echo '✅ Setup complete! Run: pnpm dev'",
