@@ -5,7 +5,7 @@ export const bullConfig = BullModule.forRootAsync({
   inject: [ConfigService],
   useFactory: (configService: ConfigService) => {
     const redisUrl = new URL(configService.get<string>('REDIS_URL') || 'redis://localhost:6379');
-    
+
     return {
       redis: {
         host: redisUrl.hostname,
