@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # PostgreSQL Database
@@ -15,7 +15,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/scripts:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pmcrm_app} -d ${POSTGRES_DB:-pmcrm}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-pmcrm_app} -d ${POSTGRES_DB:-pmcrm}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,10 +29,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: "2"
           memory: 2G
         reservations:
-          cpus: '1'
+          cpus: "1"
           memory: 1G
 
   # Redis Cache
@@ -57,10 +61,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: "1"
           memory: 512M
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
 
   # Backend API
@@ -137,10 +141,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2'
+          cpus: "2"
           memory: 1G
         reservations:
-          cpus: '1'
+          cpus: "1"
           memory: 512M
       restart_policy:
         condition: on-failure
@@ -178,42 +182,42 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
+          cpus: "1"
           memory: 512M
         reservations:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
       restart_policy:
         condition: on-failure
         delay: 5s
         max_attempts: 3
 
-  # Nginx Reverse Proxy (Optional - for production)
-  nginx:
-    image: nginx:alpine
-    container_name: pmcrm-nginx-prod
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
-    volumes:
-      - ./infrastructure/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
-      - nginx_cache:/var/cache/nginx
-      - nginx_logs:/var/log/nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    networks:
-      - app-network
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 256M
-        reservations:
-          cpus: '0.5'
-          memory: 128M
+  # # Nginx Reverse Proxy (Optional - for production)
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: pmcrm-nginx-prod
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - backend
+  #     - frontend
+  #   volumes:
+  #     - ./infrastructure/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+  #     - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
+  #     - nginx_cache:/var/cache/nginx
+  #     - nginx_logs:/var/log/nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   networks:
+  #     - app-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1'
+  #         memory: 256M
+  #       reservations:
+  #         cpus: '0.5'
+  #         memory: 128M
 
 volumes:
   postgres_data:
@@ -222,10 +226,10 @@ volumes:
     driver: local
   backend_logs:
     driver: local
-  nginx_cache:
-    driver: local
-  nginx_logs:
-    driver: local
+  # nginx_cache:
+  #   driver: local
+  # nginx_logs:
+  #   driver: local
 
 networks:
   app-network:
