@@ -73,16 +73,24 @@ export async function clearUserContext(prisma: PrismaClient) {
 
 ## SQL Scripts
 
-### Row-Level Security (001_enable_rls.sql)
+> **Note:** The functionality from these SQL scripts has been migrated to Prisma migrations.
+> See `backend/prisma/migrations/20251206173618_add_rls_functions_and_performance/migration.sql`
+> for the production-ready implementation.
+
+### Legacy Scripts (Reference Only)
+
+These scripts serve as documentation and reference for the database features:
+
+#### Row-Level Security (001_enable_rls.sql)
 
 Reference: [scripts/001_enable_rls.sql](scripts/001_enable_rls.sql)
 
 Enables RLS on sensitive tables:
 - `contacts` - User-owned contacts
-- `reminders` - User-specific reminders
 - `integrations` - OAuth tokens
+- All user-scoped tables
 
-### Performance Indexes (002_indexes_and_performance.sql)
+#### Performance Indexes (002_indexes_and_performance.sql)
 
 Reference: [scripts/002_indexes_and_performance.sql](scripts/002_indexes_and_performance.sql)
 
@@ -91,27 +99,32 @@ Indexes for common query patterns:
 - Email lookup indexes
 - Timestamp-based queries
 
-### Triggers and Functions (003_triggers_and_functions.sql)
+#### Triggers and Functions (003_triggers_and_functions.sql)
 
 Reference: [scripts/003_triggers_and_functions.sql](scripts/003_triggers_and_functions.sql)
 
 Database functions:
 - `set_current_user_id()` - Set RLS context
 - Updated timestamp triggers
-- Search vector updates
+- Soft delete helpers
 
 ## Database Commands
 
 ```bash
 # From project root
 pnpm db:generate                   # Generate Prisma client
-pnpm db:migrate                    # Run migrations (dev)
-pnpm db:migrate:deploy             # Run migrations (prod)
-pnpm db:push                       # Push schema (dev only)
+pnpm db:migrate                    # Run migrations (development)
+pnpm db:migrate:deploy             # Run migrations (production)
+pnpm db:migrate:create <name>      # Create new migration without applying
+pnpm db:migrate:status             # Check migration status
+pnpm db:migrate:reset:dev          # Reset database and rerun all migrations
 pnpm db:studio                     # Open Prisma Studio GUI
 pnpm db:seed                       # Seed database
 pnpm db:reset                      # Reset database (WARNING: deletes data)
 ```
+
+**Important:** Always use migrations (`db:migrate`) instead of `db:push` for schema changes.
+This ensures changes are tracked in version control and can be reproduced across environments.
 
 ## Key Concepts
 
@@ -147,9 +160,32 @@ Used for semantic search with OpenAI embeddings (1536 dimensions).
 
 ### Migrations
 
-1. Create migration: `pnpm prisma migrate dev --name {description}`
-2. Review generated SQL
-3. Apply with `pnpm db:migrate:deploy` in production
+**Development Workflow:**
+1. Make changes to `backend/prisma/schema.prisma`
+2. Create migration: `pnpm db:migrate:create {description}`
+3. Review generated SQL in `backend/prisma/migrations/{timestamp}_{name}/migration.sql`
+4. Apply migration: `pnpm db:migrate`
+
+**Production Workflow:**
+1. Deploy code with new migrations
+2. Run: `pnpm db:migrate:deploy`
+
+**Commands (from project root):**
+```bash
+pnpm db:migrate                    # Development: creates and applies migrations
+pnpm db:migrate:deploy             # Production: applies pending migrations only
+pnpm db:migrate:create <name>      # Create migration without applying
+pnpm db:migrate:status             # Check which migrations are pending
+pnpm db:migrate:reset:dev          # Reset DB and rerun all migrations (dev only)
+```
+
+**Commands (from backend directory):**
+```bash
+pnpm prisma migrate dev            # Development: creates and applies migrations
+pnpm prisma migrate deploy         # Production: applies pending migrations only
+pnpm prisma migrate status         # Check migration status
+pnpm prisma migrate reset          # Reset DB (dev only, destroys data)
+```
 
 ### Raw SQL Usage
 

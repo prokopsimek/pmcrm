@@ -41,9 +41,27 @@ cd backend
 pnpm install                       # Install dependencies
 pnpm docker:up                     # Start PostgreSQL + Redis
 pnpm prisma:generate               # Generate Prisma client
-pnpm prisma:migrate                # Run migrations
-pnpm db:push                       # Push schema (dev only)
+pnpm prisma:migrate                # Run migrations (development)
 ```
+
+## Migration Commands
+
+```bash
+# From project root (recommended)
+pnpm db:generate                   # Generate Prisma client
+pnpm db:migrate                    # Run migrations (development)
+pnpm db:migrate:deploy             # Run migrations (production)
+pnpm db:migrate:create <name>      # Create new migration without applying
+pnpm db:migrate:status             # Check migration status
+pnpm db:migrate:reset:dev          # Reset database and rerun all migrations
+
+# From backend directory
+pnpm prisma:migrate                # Run migrations (development)
+pnpm prisma:migrate:deploy         # Run migrations (production)
+```
+
+**Important:** Always use migrations (`db:migrate`) instead of `db:push` to ensure
+schema changes are tracked and can be reproduced across environments.
 
 ## Development Commands
 
