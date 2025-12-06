@@ -120,3 +120,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Fix browser autofill text contrast */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--foreground) !important;
+  caret-color: var(--foreground);
+}
