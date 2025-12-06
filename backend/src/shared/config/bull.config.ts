@@ -3,25 +3,28 @@ import { ConfigService } from '@nestjs/config';
 
 export const bullConfig = BullModule.forRootAsync({
   inject: [ConfigService],
-  useFactory: (configService: ConfigService) => ({
-    redis: {
-      host: new URL(configService.get<string>('REDIS_URL') || 'redis://localhost:6379').hostname,
-      port: parseInt(
-        new URL(configService.get<string>('REDIS_URL') || 'redis://localhost:6379').port || '6379',
-      ),
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-    },
-    defaultJobOptions: {
-      attempts: 3,
-      backoff: {
-        type: 'exponential',
-        delay: 1000,
+  useFactory: (configService: ConfigService) => {
+    const redisUrl = new URL(configService.get<string>('REDIS_URL') || 'redis://localhost:6379');
+    
+    return {
+      redis: {
+        host: redisUrl.hostname,
+        port: parseInt(redisUrl.port || '6379'),
+        password: redisUrl.password || undefined,
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
       },
-      removeOnComplete: 100,
-      removeOnFail: 100,
-    },
-  }),
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: 100,
+        removeOnFail: 100,
+      },
+    };
+  },
 });
 
 // Queue names
