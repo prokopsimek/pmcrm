@@ -1,11 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../shared/database/prisma.service';
-import {
-    TimelineEventDto,
-    TimelineEventType,
-    TimelineQueryDto,
-    TimelineResponseDto,
-} from './dto';
+import { TimelineEventDto, TimelineEventType, TimelineQueryDto, TimelineResponseDto } from './dto';
 
 /**
  * Internal type for raw event data before transformation
@@ -77,12 +72,7 @@ export class TimelineService {
     ]);
 
     // Merge all events
-    const allEvents = [
-      ...emailEvents,
-      ...interactionEvents,
-      ...noteEvents,
-      ...activityEvents,
-    ];
+    const allEvents = [...emailEvents, ...interactionEvents, ...noteEvents, ...activityEvents];
 
     // Sort by occurredAt descending
     allEvents.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
@@ -91,9 +81,7 @@ export class TimelineService {
     const hasMore = allEvents.length > limit;
     const paginatedEvents = allEvents.slice(0, limit);
     const lastEvent = paginatedEvents[paginatedEvents.length - 1];
-    const nextCursor = hasMore && lastEvent
-      ? lastEvent.occurredAt.toISOString()
-      : undefined;
+    const nextCursor = hasMore && lastEvent ? lastEvent.occurredAt.toISOString() : undefined;
 
     // Transform to response DTOs
     const data: TimelineEventDto[] = paginatedEvents.map(this.toTimelineEventDto);
@@ -120,14 +108,14 @@ export class TimelineService {
    * Check if we should fetch interaction events (meetings, calls)
    */
   private shouldFetchInteractions(types: TimelineEventType[]): boolean {
-    return types.some(t => [TimelineEventType.MEETING, TimelineEventType.CALL].includes(t));
+    return types.some((t) => [TimelineEventType.MEETING, TimelineEventType.CALL].includes(t));
   }
 
   /**
    * Check if we should fetch activity events (LinkedIn, etc.)
    */
   private shouldFetchActivities(types: TimelineEventType[]): boolean {
-    return types.some(t =>
+    return types.some((t) =>
       [
         TimelineEventType.LINKEDIN_MESSAGE,
         TimelineEventType.LINKEDIN_CONNECTION,
@@ -179,7 +167,7 @@ export class TimelineService {
       },
     });
 
-    return emails.map(email => ({
+    return emails.map((email) => ({
       id: email.id,
       type: TimelineEventType.EMAIL,
       occurredAt: email.occurredAt,
@@ -189,7 +177,7 @@ export class TimelineService {
       source: email.source,
       metadata: {
         threadId: email.threadId,
-        ...(email.metadata as Record<string, unknown> || {}),
+        ...((email.metadata as Record<string, unknown>) || {}),
       },
     }));
   }
@@ -253,18 +241,20 @@ export class TimelineService {
       },
     });
 
-    return interactions.map(interaction => ({
+    return interactions.map((interaction) => ({
       id: interaction.id,
-      type: interaction.interactionType === 'meeting'
-        ? TimelineEventType.MEETING
-        : TimelineEventType.CALL,
+      type:
+        interaction.interactionType === 'meeting'
+          ? TimelineEventType.MEETING
+          : TimelineEventType.CALL,
       occurredAt: interaction.occurredAt,
-      title: interaction.subject || `${interaction.interactionType === 'meeting' ? 'Meeting' : 'Call'}`,
+      title:
+        interaction.subject || `${interaction.interactionType === 'meeting' ? 'Meeting' : 'Call'}`,
       snippet: interaction.summary || undefined,
       source: interaction.externalSource || 'manual',
       metadata: {
         externalId: interaction.externalId,
-        ...(interaction.meetingData as Record<string, unknown> || {}),
+        ...((interaction.meetingData as Record<string, unknown>) || {}),
       },
     }));
   }
@@ -307,7 +297,7 @@ export class TimelineService {
       },
     });
 
-    return notes.map(note => ({
+    return notes.map((note) => ({
       id: note.id,
       type: TimelineEventType.NOTE,
       occurredAt: note.createdAt,
@@ -380,14 +370,14 @@ export class TimelineService {
       },
     });
 
-    return activities.map(activity => ({
+    return activities.map((activity) => ({
       id: activity.id,
       type: this.mapActivityTypeToTimelineType(activity.type),
       occurredAt: activity.occurredAt,
       title: activity.title,
       snippet: activity.description || undefined,
       source: 'activity',
-      metadata: activity.metadata as Record<string, unknown> || {},
+      metadata: (activity.metadata as Record<string, unknown>) || {},
     }));
   }
 
