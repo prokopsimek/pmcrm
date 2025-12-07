@@ -1,11 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
+  DiskHealthIndicator,
   HealthCheck,
   HealthCheckService,
-  PrismaHealthIndicator,
   MemoryHealthIndicator,
-  DiskHealthIndicator,
+  PrismaHealthIndicator,
 } from '@nestjs/terminus';
 import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
 import { PrismaService } from '../../shared/database/prisma.service';
@@ -30,8 +30,8 @@ export class HealthController {
   check() {
     return this.health.check([
       () => this.prismaHealth.pingCheck('database', this.prisma),
-      () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024),
-      () => this.memory.checkRSS('memory_rss', 300 * 1024 * 1024),
+      () => this.memory.checkHeap('memory_heap', 1.5 * 1024 * 1024 * 1024), // 1.5 GB
+      () => this.memory.checkRSS('memory_rss', 1.5 * 1024 * 1024 * 1024), // 1.5 GB
       () =>
         this.disk.checkStorage('storage', {
           path: '/',
