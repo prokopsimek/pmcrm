@@ -127,12 +127,13 @@ export const auth = betterAuth({
 
   // Advanced options
   advanced: {
-    // Cookie settings for cross-origin requests
+    // Enable cross-subdomain cookies for shared domain (e.g., *.apps.dx.tools)
     crossSubDomainCookies: {
-      enabled: false, // Set to true if using subdomains
+      enabled: true,
+      // Domain for cookie sharing - set via env var or default to parent domain
+      domain: process.env.COOKIE_DOMAIN || '.apps.dx.tools',
     },
     // Cookie attributes for cross-origin authentication
-    // Required when frontend and backend are on different domains
     // ALL cookies must have SameSite=None for cross-origin to work
     cookies: {
       session_token: {

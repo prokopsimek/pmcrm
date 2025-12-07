@@ -39,24 +39,18 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
-    console.log('[Login] Starting login attempt for:', data.email);
 
     try {
-      console.log('[Login] Calling signIn.email...');
       const result = await signIn.email({
         email: data.email,
         password: data.password,
       });
 
-      console.log('[Login] signIn.email result:', JSON.stringify(result, null, 2));
-
       if (result.error) {
-        console.log('[Login] Error in result:', result.error);
         toast.error('Login failed', {
           description: result.error.message || 'Invalid email or password',
         });
       } else {
-        console.log('[Login] Success! Redirecting to /organizations...');
         toast.success('Welcome back!', {
           description: 'Successfully signed in',
         });
@@ -64,12 +58,11 @@ export default function LoginPage() {
         window.location.href = '/organizations';
       }
     } catch (err) {
-      console.error('[Login] Exception caught:', err);
+      console.error('Login error:', err);
       toast.error('An unexpected error occurred', {
         description: 'Please try again later',
       });
     } finally {
-      console.log('[Login] Setting isLoading to false');
       setIsLoading(false);
     }
   };
