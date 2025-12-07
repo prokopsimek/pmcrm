@@ -1,8 +1,8 @@
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '@prisma/client';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { organization } from 'better-auth/plugins';
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
 // Create PostgreSQL connection pool for Prisma 7.x driver adapter
@@ -129,6 +129,16 @@ export const auth = betterAuth({
     // Cookie settings for cross-origin requests
     crossSubDomainCookies: {
       enabled: false, // Set to true if using subdomains
+    },
+    // Cookie attributes for cross-origin authentication
+    // Required when frontend and backend are on different domains
+    cookies: {
+      session_token: {
+        attributes: {
+          sameSite: 'none' as const,
+          secure: true,
+        },
+      },
     },
   },
 

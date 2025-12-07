@@ -1,5 +1,5 @@
-import { createAuthClient } from 'better-auth/react';
 import { organizationClient } from 'better-auth/client/plugins';
+import { createAuthClient } from 'better-auth/react';
 
 /**
  * Better Auth Client for React
@@ -10,6 +10,10 @@ import { organizationClient } from 'better-auth/client/plugins';
 export const authClient = createAuthClient({
   // Base URL of the backend (not the API path)
   baseURL: process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3001',
+  // Ensure cookies are sent with cross-origin requests
+  fetchOptions: {
+    credentials: 'include',
+  },
   // Organization plugin for multi-tenant support
   plugins: [organizationClient()],
 });
