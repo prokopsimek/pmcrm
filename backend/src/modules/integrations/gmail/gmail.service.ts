@@ -1,23 +1,31 @@
+import { InjectQueue } from '@nestjs/bull';
 import {
-  Injectable,
-  BadRequestException,
-  UnauthorizedException,
-  NotFoundException,
-  Logger,
+    BadRequestException,
+    ForbiddenException,
+    Injectable,
+    Logger,
+    NotFoundException,
+    UnauthorizedException,
 } from '@nestjs/common';
+import type { Queue } from 'bull';
+import { QueueName } from '../../../shared/config/bull.config';
 import { PrismaService } from '../../../shared/database/prisma.service';
-import { OAuthService } from '../shared/oauth.service';
-import { GmailClientService } from '../email-sync/services/gmail-client.service';
+import type { GmailSyncJobData } from '../email-sync/jobs/gmail-sync.job';
 import { EmailMatcherService } from '../email-sync/services/email-matcher.service';
+import { GmailClientService } from '../email-sync/services/gmail-client.service';
+import { OAuthService } from '../shared/oauth.service';
 import {
-  GmailOAuthInitiateResponseDto,
-  GmailOAuthCallbackResponseDto,
-  GmailDisconnectResponseDto,
-  GmailStatusResponseDto,
-  GmailConfigResponseDto,
-  EmailSyncResultDto,
-  UpdateGmailConfigDto,
-  TriggerSyncDto,
+    EmailSyncResultDto,
+    GmailConfigResponseDto,
+    GmailDisconnectResponseDto,
+    GmailOAuthCallbackResponseDto,
+    GmailOAuthInitiateResponseDto,
+    GmailStatusResponseDto,
+    GmailSyncJobResponseDto,
+    GmailSyncJobStatusDto,
+    QueueGmailSyncDto,
+    TriggerSyncDto,
+    UpdateGmailConfigDto,
 } from './dto';
 
 /**
@@ -42,6 +50,8 @@ export class GmailService {
     private readonly oauthService: OAuthService,
     private readonly gmailClient: GmailClientService,
     private readonly emailMatcher: EmailMatcherService,
+    @InjectQueue(QueueName.INTEGRATION_SYNC)
+    private readonly syncQueue: Queue,
   ) {}
 
   /**
@@ -480,6 +490,134 @@ export class GmailService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Queue background email sync job
+   * Returns immediately with job ID for status tracking
+   */
+  async queueEmailSync(
+    userId: string,
+    options?: QueueGmailSyncDto,
+  ): Promise<GmailSyncJobResponseDto> {
+    this.logger.log(`Queueing Gmail background sync for user ${userId}`);
+
+    // Validate integration exists
+    const integration = await this.getActiveIntegration(userId);
+
+    const config = await this.prisma.emailSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    if (!config?.gmailEnabled) {
+      throw new BadRequestException('Gmail is not enabled for this user');
+    }
+
+    if (!config.syncEnabled) {
+      throw new BadRequestException('Email sync is disabled');
+    }
+
+    // Check if there's already an active sync job
+    const existingJob = await this.prisma.importJob.findFirst({
+      where: {
+        userId,
+        type: 'gmail_email_sync',
+        status: { in: ['queued', 'processing'] },
+      },
+    });
+
+    if (existingJob) {
+      return {
+        jobId: existingJob.id,
+        status: existingJob.status as 'queued' | 'processing',
+        message: 'A Gmail sync is already in progress',
+      };
+    }
+
+    // Create ImportJob record
+    const importJob = await this.prisma.importJob.create({
+      data: {
+        userId,
+        type: 'gmail_email_sync',
+        status: 'queued',
+        totalCount: 0,
+        processedCount: 0,
+        importedCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+        errors: [],
+        metadata: {
+          fullSync: options?.fullSync ?? false,
+          historyDays: options?.historyDays ?? 365,
+        },
+      },
+    });
+
+    // Queue the background job
+    const jobData: GmailSyncJobData = {
+      jobId: importJob.id,
+      userId,
+      fullSync: options?.fullSync,
+      historyDays: options?.historyDays,
+    };
+
+    await this.syncQueue.add('sync-gmail-background', jobData, {
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 30000, // 30 seconds base delay
+      },
+      removeOnComplete: 100, // Keep last 100 completed jobs
+      removeOnFail: 50, // Keep last 50 failed jobs
+    });
+
+    this.logger.log(`Gmail sync job ${importJob.id} queued for user ${userId}`);
+
+    return {
+      jobId: importJob.id,
+      status: 'queued',
+      message: 'Gmail sync job queued successfully. Check status using the job ID.',
+    };
+  }
+
+  /**
+   * Get Gmail sync job status
+   */
+  async getSyncJobStatus(userId: string, jobId: string): Promise<GmailSyncJobStatusDto> {
+    const job = await this.prisma.importJob.findUnique({
+      where: { id: jobId },
+    });
+
+    if (!job) {
+      throw new NotFoundException('Sync job not found');
+    }
+
+    if (job.userId !== userId) {
+      throw new ForbiddenException('You do not have access to this job');
+    }
+
+    if (job.type !== 'gmail_email_sync') {
+      throw new BadRequestException('Invalid job type');
+    }
+
+    const progress =
+      job.totalCount > 0 ? Math.round((job.processedCount / job.totalCount) * 100) : 0;
+
+    return {
+      jobId: job.id,
+      status: job.status as 'queued' | 'processing' | 'completed' | 'failed',
+      totalCount: job.totalCount,
+      processedCount: job.processedCount,
+      importedCount: job.importedCount,
+      skippedCount: job.skippedCount,
+      failedCount: job.failedCount,
+      progress,
+      errors: (job.errors as Array<{ emailId?: string; error: string }>) || [],
+      startedAt: job.startedAt || undefined,
+      completedAt: job.completedAt || undefined,
+      createdAt: job.createdAt,
+      metadata: job.metadata as Record<string, unknown> | undefined,
+    };
   }
 
   /**

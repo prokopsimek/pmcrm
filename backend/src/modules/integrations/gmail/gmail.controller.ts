@@ -1,31 +1,33 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Put,
-  Delete,
-  Query,
-  Body,
-  Res,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
-import type { Response } from 'express';
-import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
-import { GmailService } from './gmail.service';
-import {
-  GmailOAuthInitiateResponseDto,
-  GmailStatusResponseDto,
-  GmailConfigResponseDto,
-  GmailDisconnectResponseDto,
-  EmailSyncResultDto,
-  UpdateGmailConfigDto,
-  TriggerSyncDto,
-} from './dto';
-import { CurrentUser } from '@/shared/decorators/current-user.decorator';
 import type { SessionUser } from '@/shared/decorators/current-user.decorator';
+import { CurrentUser } from '@/shared/decorators/current-user.decorator';
+import {
+    Body,
+    Controller,
+    Delete,
+    Get,
+    HttpCode,
+    HttpStatus,
+    Param,
+    Post,
+    Put,
+    Query,
+    Res,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
+import type { Response } from 'express';
+import {
+    GmailConfigResponseDto,
+    GmailDisconnectResponseDto,
+    GmailOAuthInitiateResponseDto,
+    GmailStatusResponseDto,
+    GmailSyncJobResponseDto,
+    GmailSyncJobStatusDto,
+    QueueGmailSyncDto,
+    UpdateGmailConfigDto,
+} from './dto';
+import { GmailService } from './gmail.service';
 
 /**
  * Gmail Integration Controller
@@ -172,22 +174,53 @@ export class GmailController {
   }
 
   /**
-   * Trigger email sync
+   * Queue background email sync job
    * POST /api/v1/integrations/gmail/sync
+   * Returns immediately with job ID for status tracking
    */
   @Post('sync')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Trigger Gmail email sync' })
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Queue Gmail email sync (background job)',
+    description:
+      'Queues a background job to sync all emails within the specified time period. ' +
+      'Returns immediately with a job ID that can be used to track progress.',
+  })
   @ApiResponse({
-    status: 200,
-    description: 'Email sync completed',
-    type: EmailSyncResultDto,
+    status: 202,
+    description: 'Sync job queued successfully',
+    type: GmailSyncJobResponseDto,
   })
   async syncEmails(
     @CurrentUser() user: SessionUser,
-    @Body() dto?: TriggerSyncDto,
-  ): Promise<EmailSyncResultDto> {
-    return this.gmailService.syncEmails(user.id, dto);
+    @Body() dto?: QueueGmailSyncDto,
+  ): Promise<GmailSyncJobResponseDto> {
+    return this.gmailService.queueEmailSync(user.id, dto);
+  }
+
+  /**
+   * Get sync job status
+   * GET /api/v1/integrations/gmail/sync/:jobId
+   */
+  @Get('sync/:jobId')
+  @ApiOperation({
+    summary: 'Get Gmail sync job status',
+    description: 'Returns the current status and progress of a Gmail sync job.',
+  })
+  @ApiParam({
+    name: 'jobId',
+    description: 'The sync job ID returned from POST /sync',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Job status retrieved',
+    type: GmailSyncJobStatusDto,
+  })
+  async getSyncStatus(
+    @CurrentUser() user: SessionUser,
+    @Param('jobId') jobId: string,
+  ): Promise<GmailSyncJobStatusDto> {
+    return this.gmailService.getSyncJobStatus(user.id, jobId);
   }
 
   /**

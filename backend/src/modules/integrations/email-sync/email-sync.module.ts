@@ -14,6 +14,7 @@ import { OAuthService } from '../shared/oauth.service';
 import { EmailSyncController } from './email-sync.controller';
 import { EmailSyncService } from './email-sync.service';
 import { EmailSyncJob } from './jobs/email-sync.job';
+import { GmailSyncJob } from './jobs/gmail-sync.job';
 import { ContactEmailService } from './services/contact-email.service';
 import { EmailMatcherService } from './services/email-matcher.service';
 import { GmailClientService } from './services/gmail-client.service';
@@ -38,6 +39,7 @@ import { SentimentAnalyzerService } from './services/sentiment-analyzer.service'
     SentimentAnalyzerService,
     ContactEmailService,
     EmailSyncJob,
+    GmailSyncJob,
     OAuthService,
   ],
   exports: [EmailSyncService, ContactEmailService, GmailClientService, EmailMatcherService],

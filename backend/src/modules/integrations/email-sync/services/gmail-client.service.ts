@@ -4,13 +4,41 @@
  * Handles Gmail API interactions using googleapis
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
-import { EmailMessage, EmailAddress } from '../interfaces/email.interface';
+import { EmailAddress, EmailMessage } from '../interfaces/email.interface';
+
+/**
+ * Options for paginated email fetch
+ */
+export interface FetchAllMessagesOptions {
+  /** How many days back to fetch emails (default: 365) */
+  historyDays?: number;
+  /** Custom query string (overrides historyDays if provided) */
+  query?: string;
+  /** Progress callback for tracking fetch progress */
+  onProgress?: (fetched: number) => void;
+}
+
+/**
+ * Result of paginated email fetch
+ */
+export interface FetchAllMessagesResult {
+  messages: EmailMessage[];
+  totalFetched: number;
+  pagesProcessed: number;
+}
+
+/** Gmail API max results per page */
+const GMAIL_PAGE_SIZE = 500;
+
+/** Default history days for full sync */
+const DEFAULT_HISTORY_DAYS = 365;
 
 @Injectable()
 export class GmailClientService {
+  private readonly logger = new Logger(GmailClientService.name);
   private oauth2Client: any;
 
   constructor(private readonly configService: ConfigService) {
@@ -89,6 +117,89 @@ export class GmailClientService {
     }
 
     return emailMessages;
+  }
+
+  /**
+   * Fetch all messages with pagination support
+   * Used for background sync jobs - fetches ALL emails within the time period
+   * @param accessToken - Gmail OAuth access token
+   * @param options - Fetch options including historyDays and progress callback
+   * @returns All fetched messages with pagination info
+   */
+  async fetchAllMessages(
+    accessToken: string,
+    options?: FetchAllMessagesOptions,
+  ): Promise<FetchAllMessagesResult> {
+    this.oauth2Client.setCredentials({ access_token: accessToken });
+    const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+
+    const historyDays = options?.historyDays ?? DEFAULT_HISTORY_DAYS;
+    const query = options?.query ?? `newer_than:${historyDays}d`;
+
+    this.logger.log(`Fetching all messages with query: "${query}"`);
+
+    const allMessages: EmailMessage[] = [];
+    let pageToken: string | undefined;
+    let pagesProcessed = 0;
+
+    do {
+      // Fetch message IDs for current page
+      const listResponse = await gmail.users.messages.list({
+        userId: 'me',
+        maxResults: GMAIL_PAGE_SIZE,
+        q: query,
+        pageToken,
+      });
+
+      const messageRefs = listResponse.data.messages || [];
+      pagesProcessed++;
+
+      this.logger.debug(
+        `Page ${pagesProcessed}: Found ${messageRefs.length} message references`,
+      );
+
+      // Fetch full message details for each message in this page
+      for (const messageRef of messageRefs) {
+        if (!messageRef.id) continue;
+
+        try {
+          const messageDetail = await gmail.users.messages.get({
+            userId: 'me',
+            id: messageRef.id,
+            format: 'full',
+          });
+
+          const parsedMessage = this.parseGmailMessage(messageDetail.data);
+          allMessages.push(parsedMessage);
+        } catch (error) {
+          this.logger.warn(
+            `Failed to fetch message ${messageRef.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+        }
+      }
+
+      // Report progress if callback provided
+      if (options?.onProgress) {
+        options.onProgress(allMessages.length);
+      }
+
+      // Get next page token
+      pageToken = listResponse.data.nextPageToken ?? undefined;
+
+      this.logger.debug(
+        `Progress: ${allMessages.length} messages fetched, hasNextPage: ${!!pageToken}`,
+      );
+    } while (pageToken);
+
+    this.logger.log(
+      `Completed fetching ${allMessages.length} messages across ${pagesProcessed} pages`,
+    );
+
+    return {
+      messages: allMessages,
+      totalFetched: allMessages.length,
+      pagesProcessed,
+    };
   }
 
   /**
