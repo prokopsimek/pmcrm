@@ -260,12 +260,10 @@ export const integrationsService = {
      * @param orgSlug - Optional organization slug for redirect after callback
      */
     async initiateAuth(orgSlug?: string): Promise<{ authUrl: string; state: string; scopes: string[] }> {
-      const params = orgSlug ? { orgSlug } : undefined;
-      const response = await apiClient.post<{ authUrl: string; state: string; scopes: string[] }>(
-        '/integrations/google-calendar/connect',
-        undefined, // no body
-        { params }
-      );
+      const url = orgSlug
+        ? `/integrations/google-calendar/connect?orgSlug=${encodeURIComponent(orgSlug)}`
+        : '/integrations/google-calendar/connect';
+      const response = await apiClient.post<{ authUrl: string; state: string; scopes: string[] }>(url);
       return response.data;
     },
 
