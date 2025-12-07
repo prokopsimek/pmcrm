@@ -54,7 +54,8 @@ export default function LoginPage() {
         toast.success('Welcome back!', {
           description: 'Successfully signed in',
         });
-        router.push('/organizations');
+        // Use hard redirect to ensure session cookies are properly recognized
+        window.location.href = '/organizations';
       }
     } catch (err) {
       console.error('Login error:', err);
