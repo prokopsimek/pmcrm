@@ -8,6 +8,13 @@ interface OAuthConfig {
   provider: 'google' | 'linkedin' | 'microsoft';
   usePKCE?: boolean;
   integration?: string; // Custom integration name for callback URL (e.g., 'gmail' when using Google OAuth)
+  metadata?: Record<string, string>; // Additional metadata to store with state (e.g., orgSlug)
+}
+
+interface StateData {
+  userId: string;
+  timestamp: number;
+  metadata?: Record<string, string>;
 }
 
 interface OAuthTokens {
@@ -27,7 +34,7 @@ export class OAuthService {
   private readonly logger = new Logger(OAuthService.name);
   private readonly encryptionKey: Buffer | null;
   private readonly algorithm = 'aes-256-gcm';
-  private readonly stateStore = new Map<string, { userId: string; timestamp: number }>();
+  private readonly stateStore = new Map<string, StateData>();
 
   constructor(private readonly configService: ConfigService) {
     // Try multiple possible env variable names for encryption key
@@ -60,7 +67,7 @@ export class OAuthService {
    * Generate OAuth authorization URL with PKCE support
    */
   generateAuthUrl(config: OAuthConfig): string {
-    const { scopes, userId, provider, usePKCE = true, integration } = config;
+    const { scopes, userId, provider, usePKCE = true, integration, metadata } = config;
 
     // Validate configuration before proceeding
     if (!this.encryptionKey) {
@@ -69,7 +76,7 @@ export class OAuthService {
       );
     }
 
-    const state = this.generateState(userId);
+    const state = this.generateState(userId, metadata);
     const redirectUri = this.getRedirectUri(provider, integration);
 
     const params = new URLSearchParams({
@@ -230,11 +237,32 @@ export class OAuthService {
     return stored.userId === userId;
   }
 
+  /**
+   * Extract state data including metadata (consumes the state)
+   * Returns null if state is invalid or expired
+   */
+  extractStateData(state: string): StateData | null {
+    const stored = this.stateStore.get(state);
+    if (!stored) {
+      return null;
+    }
+
+    // State expires after 10 minutes
+    if (Date.now() - stored.timestamp > 10 * 60 * 1000) {
+      this.stateStore.delete(state);
+      return null;
+    }
+
+    // Consume the state (one-time use)
+    this.stateStore.delete(state);
+    return stored;
+  }
+
   // Private helper methods
 
-  private generateState(userId: string): string {
+  private generateState(userId: string, metadata?: Record<string, string>): string {
     const state = crypto.randomBytes(32).toString('hex');
-    this.stateStore.set(state, { userId, timestamp: Date.now() });
+    this.stateStore.set(state, { userId, timestamp: Date.now(), metadata });
     return state;
   }
 

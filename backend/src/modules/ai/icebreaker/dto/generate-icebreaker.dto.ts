@@ -173,8 +173,3 @@ export class IcebreakerHistoryDto {
   @ApiPropertyOptional({ description: 'Sent at timestamp' })
   sentAt?: Date;
 }
-
-
-
-
-

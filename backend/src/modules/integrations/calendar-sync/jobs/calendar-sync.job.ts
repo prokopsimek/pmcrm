@@ -114,7 +114,9 @@ export class CalendarSyncJob implements OnModuleInit {
     const { userId, type } = job.data;
     const startTime = Date.now();
 
-    this.logger.log(`[processSync] Starting calendar sync job for user ${userId}, type: ${type}, jobId: ${job.id}`);
+    this.logger.log(
+      `[processSync] Starting calendar sync job for user ${userId}, type: ${type}, jobId: ${job.id}`,
+    );
 
     try {
       this.logger.debug(`[processSync] Calling incrementalSync for user ${userId}`);
@@ -156,7 +158,9 @@ export class CalendarSyncJob implements OnModuleInit {
   ): Promise<void> {
     const jobId = `calendar-sync-immediate-${userId}-${Date.now()}`;
 
-    this.logger.debug(`[queueImmediateSync] Queueing sync job for user ${userId}, type: ${type}, jobId: ${jobId}`);
+    this.logger.debug(
+      `[queueImmediateSync] Queueing sync job for user ${userId}, type: ${type}, jobId: ${jobId}`,
+    );
 
     await this.calendarSyncQueue.add('sync', { userId, type } as CalendarSyncJobData, {
       jobId,
@@ -165,7 +169,9 @@ export class CalendarSyncJob implements OnModuleInit {
       removeOnFail: false,
     });
 
-    this.logger.log(`[queueImmediateSync] Queued immediate calendar sync for user ${userId}, jobId: ${jobId}`);
+    this.logger.log(
+      `[queueImmediateSync] Queued immediate calendar sync for user ${userId}, jobId: ${jobId}`,
+    );
   }
 
   /**

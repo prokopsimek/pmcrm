@@ -95,8 +95,3 @@ export class OutlookCalendarClientService {
     throw new BadRequestException('Outlook Calendar integration is not yet supported');
   }
 }
-
-
-
-
-

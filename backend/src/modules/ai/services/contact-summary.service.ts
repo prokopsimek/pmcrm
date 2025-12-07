@@ -125,6 +125,7 @@ export class ContactSummaryService {
         subject: e.subject || '(no subject)',
         snippet: e.snippet || '',
         direction: e.direction === 'INBOUND' ? 'inbound' : 'outbound',
+        participationType: e.participationType.toLowerCase() as 'sender' | 'recipient' | 'cc',
         date: e.occurredAt,
       })),
     );
@@ -248,6 +249,7 @@ export class ContactSummaryService {
         subject: e.subject || '(no subject)',
         snippet: e.snippet || '',
         direction: e.direction === 'INBOUND' ? 'inbound' : 'outbound',
+        participationType: e.participationType.toLowerCase() as 'sender' | 'recipient' | 'cc',
         date: e.occurredAt,
       })),
       contact.reminders.map((r) => ({

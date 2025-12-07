@@ -39,4 +39,3 @@ export class TimelineQueryDto {
   @Max(100)
   limit?: number = 20;
 }
-

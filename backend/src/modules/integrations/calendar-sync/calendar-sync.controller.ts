@@ -70,11 +70,12 @@ export class CalendarSyncController {
   })
   async connectGoogleCalendar(
     @CurrentUser() user: SessionUser | any,
+    @Query('orgSlug') orgSlug?: string,
   ): Promise<CalendarConnectionResponseDto> {
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return this.calendarSyncService.connectGoogleCalendar(user.id);
+    return this.calendarSyncService.connectGoogleCalendar(user.id, orgSlug);
   }
 
   /**
@@ -115,13 +116,18 @@ export class CalendarSyncController {
     @Res() res?: Response,
   ): Promise<CalendarCallbackResponseDto | void> {
     const frontendUrl = this.getFrontendUrl();
-    const redirectBase = `${frontendUrl}/settings/integrations`;
+
+    // Helper to build redirect URL with optional orgSlug
+    const buildRedirectUrl = (orgSlug?: string) => {
+      const basePath = orgSlug ? `/${orgSlug}/settings/integrations` : '/settings/integrations';
+      return `${frontendUrl}${basePath}`;
+    };
 
     // Validate parameters
     if (!code) {
       if (res) {
         res.redirect(
-          `${redirectBase}?error=missing_code&message=${encodeURIComponent('Missing authorization code')}`,
+          `${buildRedirectUrl()}?error=missing_code&message=${encodeURIComponent('Missing authorization code')}`,
         );
         return;
       }
@@ -131,7 +137,7 @@ export class CalendarSyncController {
     if (!state) {
       if (res) {
         res.redirect(
-          `${redirectBase}?error=missing_state&message=${encodeURIComponent('Missing state parameter')}`,
+          `${buildRedirectUrl()}?error=missing_state&message=${encodeURIComponent('Missing state parameter')}`,
         );
         return;
       }
@@ -141,10 +147,11 @@ export class CalendarSyncController {
     try {
       // userId is extracted from state in the service (callback is anonymous)
       const result = await this.calendarSyncService.handleOAuthCallback(code, state, 'google');
+      const redirectUrl = buildRedirectUrl(result.orgSlug);
 
       if (res) {
         res.redirect(
-          `${redirectBase}?success=google-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
+          `${redirectUrl}?success=google-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
         );
         return;
       }
@@ -155,7 +162,7 @@ export class CalendarSyncController {
 
       if (res) {
         res.redirect(
-          `${redirectBase}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
+          `${buildRedirectUrl()}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
         );
         return;
       }
@@ -182,13 +189,18 @@ export class CalendarSyncController {
     @Res() res?: Response,
   ): Promise<CalendarCallbackResponseDto | void> {
     const frontendUrl = this.getFrontendUrl();
-    const redirectBase = `${frontendUrl}/settings/integrations`;
+
+    // Helper to build redirect URL with optional orgSlug
+    const buildRedirectUrl = (orgSlug?: string) => {
+      const basePath = orgSlug ? `/${orgSlug}/settings/integrations` : '/settings/integrations';
+      return `${frontendUrl}${basePath}`;
+    };
 
     // Validate parameters
     if (!code) {
       if (res) {
         res.redirect(
-          `${redirectBase}?error=missing_code&message=${encodeURIComponent('Missing authorization code')}`,
+          `${buildRedirectUrl()}?error=missing_code&message=${encodeURIComponent('Missing authorization code')}`,
         );
         return;
       }
@@ -198,7 +210,7 @@ export class CalendarSyncController {
     if (!state) {
       if (res) {
         res.redirect(
-          `${redirectBase}?error=missing_state&message=${encodeURIComponent('Missing state parameter')}`,
+          `${buildRedirectUrl()}?error=missing_state&message=${encodeURIComponent('Missing state parameter')}`,
         );
         return;
       }
@@ -208,10 +220,11 @@ export class CalendarSyncController {
     try {
       // userId is extracted from state in the service (callback is anonymous)
       const result = await this.calendarSyncService.handleOAuthCallback(code, state, 'microsoft');
+      const redirectUrl = buildRedirectUrl(result.orgSlug);
 
       if (res) {
         res.redirect(
-          `${redirectBase}?success=outlook-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
+          `${redirectUrl}?success=outlook-calendar&showCalendarSelect=true&message=${encodeURIComponent(result.message || 'Connected successfully')}`,
         );
         return;
       }
@@ -222,7 +235,7 @@ export class CalendarSyncController {
 
       if (res) {
         res.redirect(
-          `${redirectBase}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
+          `${buildRedirectUrl()}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
         );
         return;
       }

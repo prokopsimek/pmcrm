@@ -18,4 +18,3 @@ import { TimelineService } from './timeline.service';
   exports: [TimelineService],
 })
 export class TimelineModule {}
-

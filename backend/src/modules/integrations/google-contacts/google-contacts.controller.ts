@@ -1,30 +1,35 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Query,
-  Body,
-  Res,
-  BadRequestException,
-} from '@nestjs/common';
-import type { Response } from 'express';
-import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
-import { GoogleContactsService } from './google-contacts.service';
-import {
-  ImportContactsDto,
-  ImportContactsResponseDto,
-  SyncContactsResponseDto,
-  OAuthInitiateResponseDto,
-  OAuthCallbackResponseDto,
-  DisconnectIntegrationResponseDto,
-  IntegrationStatusResponseDto,
-} from './dto/import-contacts.dto';
-import { ImportPreviewResponseDto, ImportPreviewQueryDto } from './dto/import-preview.dto';
-import { CurrentUser } from '@/shared/decorators/current-user.decorator';
+import { QueueName } from '@/shared/config/bull.config';
+import { PrismaService } from '@/shared/database/prisma.service';
 import type { SessionUser } from '@/shared/decorators/current-user.decorator';
+import { CurrentUser } from '@/shared/decorators/current-user.decorator';
+import { InjectQueue } from '@nestjs/bull';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Res,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AllowAnonymous } from '@thallesp/nestjs-better-auth';
+import type { Queue } from 'bull';
+import type { Response } from 'express';
+import {
+  DisconnectIntegrationResponseDto,
+  ImportContactsDto,
+  IntegrationStatusResponseDto,
+  OAuthInitiateResponseDto,
+  SyncContactsResponseDto,
+} from './dto/import-contacts.dto';
+import { ImportJobResponseDto, ImportJobStatusDto } from './dto/import-job.dto';
+import { ImportPreviewQueryDto, ImportPreviewResponseDto } from './dto/import-preview.dto';
+import { GoogleContactsService } from './google-contacts.service';
 
 /**
  * Google Contacts Integration Controller
@@ -36,6 +41,9 @@ export class GoogleContactsController {
   constructor(
     private readonly googleContactsService: GoogleContactsService,
     private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+    @InjectQueue(QueueName.INTEGRATION_SYNC)
+    private readonly integrationSyncQueue: Queue,
   ) {}
 
   private getFrontendUrl(): string {
@@ -53,8 +61,11 @@ export class GoogleContactsController {
     description: 'OAuth authorization URL generated',
     type: OAuthInitiateResponseDto,
   })
-  async initiateAuth(@CurrentUser() user: SessionUser): Promise<OAuthInitiateResponseDto> {
-    return this.googleContactsService.initiateOAuthFlow(user.id);
+  async initiateAuth(
+    @CurrentUser() user: SessionUser,
+    @Query('orgSlug') orgSlug?: string,
+  ): Promise<OAuthInitiateResponseDto> {
+    return this.googleContactsService.initiateOAuthFlow(user.id, orgSlug);
   }
 
   /**
@@ -79,33 +90,39 @@ export class GoogleContactsController {
     @Res() res: Response,
   ): Promise<void> {
     const frontendUrl = this.getFrontendUrl();
-    const redirectBase = `${frontendUrl}/settings/integrations`;
+
+    // Helper to build redirect URL with optional orgSlug
+    const buildRedirectUrl = (orgSlug?: string) => {
+      const basePath = orgSlug ? `/${orgSlug}/settings/integrations` : '/settings/integrations';
+      return `${frontendUrl}${basePath}`;
+    };
 
     try {
       // Validate query parameters
       if (!code || !state) {
         res.redirect(
-          `${redirectBase}?error=missing_params&message=${encodeURIComponent('Missing required parameters')}`,
+          `${buildRedirectUrl()}?error=missing_params&message=${encodeURIComponent('Missing required parameters')}`,
         );
         return;
       }
 
       if (code.trim() === '' || state.trim() === '') {
         res.redirect(
-          `${redirectBase}?error=empty_params&message=${encodeURIComponent('Code and state cannot be empty')}`,
+          `${buildRedirectUrl()}?error=empty_params&message=${encodeURIComponent('Code and state cannot be empty')}`,
         );
         return;
       }
 
       // Process the OAuth callback
       const result = await this.googleContactsService.handleOAuthCallback(code, state);
+      const redirectUrl = buildRedirectUrl(result.orgSlug);
 
       // Redirect to frontend with success
-      res.redirect(`${redirectBase}?success=google&message=${encodeURIComponent(result.message)}`);
+      res.redirect(`${redirectUrl}?success=google&message=${encodeURIComponent(result.message)}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       res.redirect(
-        `${redirectBase}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
+        `${buildRedirectUrl()}?error=oauth_failed&message=${encodeURIComponent(errorMessage)}`,
       );
     }
   }
@@ -135,15 +152,17 @@ export class GoogleContactsController {
   }
 
   /**
-   * Import contacts from Google
+   * Import contacts from Google (queues background job)
    * POST /api/v1/integrations/google/contacts/import
+   *
+   * Returns immediately with a job ID. Use GET /contacts/import/:jobId to poll status.
    */
   @Post('contacts/import')
-  @ApiOperation({ summary: 'Import contacts from Google Contacts' })
+  @ApiOperation({ summary: 'Start background import of contacts from Google Contacts' })
   @ApiResponse({
     status: 200,
-    description: 'Contacts imported successfully',
-    type: ImportContactsResponseDto,
+    description: 'Import job queued successfully',
+    type: ImportJobResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -152,7 +171,7 @@ export class GoogleContactsController {
   async importContacts(
     @CurrentUser() user: SessionUser,
     @Body() importDto: ImportContactsDto,
-  ): Promise<ImportContactsResponseDto> {
+  ): Promise<ImportJobResponseDto> {
     // Validate DTO
     if (typeof importDto.skipDuplicates !== 'boolean') {
       throw new BadRequestException('skipDuplicates must be a boolean');
@@ -170,7 +189,61 @@ export class GoogleContactsController {
       throw new BadRequestException('selectedContactIds must be an array');
     }
 
-    return this.googleContactsService.importContacts(user.id, importDto);
+    // Queue import job via service
+    return this.googleContactsService.queueImportJob(user.id, importDto, this.integrationSyncQueue);
+  }
+
+  /**
+   * Get import job status
+   * GET /api/v1/integrations/google/contacts/import/:jobId
+   */
+  @Get('contacts/import/:jobId')
+  @ApiOperation({ summary: 'Get status of an import job' })
+  @ApiParam({ name: 'jobId', description: 'Import job ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Import job status retrieved',
+    type: ImportJobStatusDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Import job not found',
+  })
+  async getImportJobStatus(
+    @CurrentUser() user: SessionUser,
+    @Param('jobId') jobId: string,
+  ): Promise<ImportJobStatusDto> {
+    const importJob = await this.prisma.importJob.findFirst({
+      where: {
+        id: jobId,
+        userId: user.id,
+      },
+    });
+
+    if (!importJob) {
+      throw new NotFoundException('Import job not found');
+    }
+
+    // Calculate progress percentage
+    const progress =
+      importJob.totalCount > 0
+        ? Math.round((importJob.processedCount / importJob.totalCount) * 100)
+        : 0;
+
+    return {
+      jobId: importJob.id,
+      status: importJob.status as 'queued' | 'processing' | 'completed' | 'failed',
+      totalCount: importJob.totalCount,
+      processedCount: importJob.processedCount,
+      importedCount: importJob.importedCount,
+      skippedCount: importJob.skippedCount,
+      failedCount: importJob.failedCount,
+      progress,
+      errors: importJob.errors as Array<{ contactId: string; error: string }>,
+      startedAt: importJob.startedAt ?? undefined,
+      completedAt: importJob.completedAt ?? undefined,
+      createdAt: importJob.createdAt,
+    };
   }
 
   /**

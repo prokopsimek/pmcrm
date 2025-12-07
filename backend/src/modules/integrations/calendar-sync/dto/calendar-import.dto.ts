@@ -196,8 +196,3 @@ export class ImportCalendarContactsResponseDto {
   @ApiProperty({ description: 'Timestamp of the import' })
   timestamp: Date;
 }
-
-
-
-
-

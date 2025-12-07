@@ -1,12 +1,10 @@
 import {
-  IsBoolean,
-  IsOptional,
-  IsArray,
-  IsString,
-  IsObject,
-  ValidateNested,
+    IsArray,
+    IsBoolean,
+    IsObject,
+    IsOptional,
+    IsString
 } from 'class-validator';
-import { Type } from 'class-transformer';
 
 /**
  * DTO for importing contacts from Google
@@ -88,6 +86,7 @@ export class OAuthCallbackResponseDto {
   success: boolean;
   integrationId: string;
   message: string;
+  orgSlug?: string; // Organization slug for redirect
 }
 
 /**

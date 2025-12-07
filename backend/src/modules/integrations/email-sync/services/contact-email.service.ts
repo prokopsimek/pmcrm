@@ -6,15 +6,15 @@
 import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import { PrismaService } from '@/shared/database/prisma.service';
 import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  MessageEvent,
-  NotFoundException,
-  forwardRef,
+    BadRequestException,
+    Inject,
+    Injectable,
+    Logger,
+    MessageEvent,
+    NotFoundException,
+    forwardRef,
 } from '@nestjs/common';
-import { EmailDirection } from '@prisma/client';
+import { EmailDirection, EmailParticipationType } from '@prisma/client';
 import { Observable, Subject } from 'rxjs';
 import { OAuthService } from '../../shared/oauth.service';
 import { GmailClientService } from './gmail-client.service';
@@ -26,6 +26,7 @@ export interface ContactEmail {
   snippet: string | null;
   body: string | null;
   direction: EmailDirection;
+  participationType: EmailParticipationType;
   occurredAt: Date;
   externalId: string;
 }
@@ -117,6 +118,7 @@ export class ContactEmailService {
         snippet: e.snippet,
         body: e.body,
         direction: e.direction,
+        participationType: e.participationType,
         occurredAt: e.occurredAt,
         externalId: e.externalId,
       })),
@@ -154,6 +156,7 @@ export class ContactEmailService {
       snippet: email.snippet,
       body: email.body,
       direction: email.direction,
+      participationType: email.participationType,
       occurredAt: email.occurredAt,
       externalId: email.externalId,
     };
@@ -195,8 +198,8 @@ export class ContactEmailService {
     }
 
     try {
-      // Fetch emails involving this contact
-      const query = `(from:${contactEmail} OR to:${contactEmail})`;
+      // Fetch emails involving this contact (including CC)
+      const query = `(from:${contactEmail} OR to:${contactEmail} OR cc:${contactEmail})`;
       const messages = await this.gmailClient.fetchMessages(accessToken, {
         query,
         maxResults: 100,
@@ -207,10 +210,18 @@ export class ContactEmailService {
       // Store emails in database
       let syncedCount = 0;
       for (const message of messages) {
-        // Determine direction
         const fromEmail = message.from.email.toLowerCase();
         const userEmail = user.email.toLowerCase();
+        const contactEmailLower = contactEmail.toLowerCase();
+
+        // Determine direction (from user's perspective)
         const direction = fromEmail === userEmail ? 'OUTBOUND' : 'INBOUND';
+
+        // Determine participation type (how the contact participated)
+        const participationType = this.determineParticipationType(
+          message,
+          contactEmailLower,
+        );
 
         try {
           await this.prisma.emailThread.upsert({
@@ -227,6 +238,7 @@ export class ContactEmailService {
               snippet: message.snippet,
               body: message.body?.slice(0, 10000), // Limit body size
               direction: direction as EmailDirection,
+              participationType: participationType as EmailParticipationType,
               occurredAt: message.receivedAt,
               externalId: message.id,
               source: 'gmail',
@@ -243,6 +255,7 @@ export class ContactEmailService {
               snippet: message.snippet,
               body: message.body?.slice(0, 10000),
               occurredAt: message.receivedAt,
+              participationType: participationType as EmailParticipationType,
             },
           });
           syncedCount++;
@@ -275,6 +288,37 @@ export class ContactEmailService {
       this.logger.error(`Failed to sync emails for contact ${contactId}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Determine how the contact participated in the email
+   * Priority: SENDER > RECIPIENT > CC
+   */
+  private determineParticipationType(
+    message: { from: { email: string }; to: { email: string }[]; cc?: { email: string }[] },
+    contactEmail: string,
+  ): EmailParticipationType {
+    // Check if contact is the sender
+    if (message.from.email.toLowerCase() === contactEmail) {
+      return 'SENDER';
+    }
+
+    // Check if contact is a direct recipient (TO)
+    const isRecipient = message.to.some(
+      (recipient) => recipient.email.toLowerCase() === contactEmail,
+    );
+    if (isRecipient) {
+      return 'RECIPIENT';
+    }
+
+    // Check if contact is in CC
+    const isCC = message.cc?.some((cc) => cc.email.toLowerCase() === contactEmail);
+    if (isCC) {
+      return 'CC';
+    }
+
+    // Default to RECIPIENT if we can't determine (shouldn't happen)
+    return 'RECIPIENT';
   }
 
   /**
@@ -351,6 +395,7 @@ export class ContactEmailService {
       snippet: e.snippet,
       body: e.body,
       direction: e.direction,
+      participationType: e.participationType,
       occurredAt: e.occurredAt,
       externalId: e.externalId,
     }));
@@ -419,6 +464,7 @@ export class ContactEmailService {
               subject: email.subject,
               snippet: email.snippet,
               direction: email.direction,
+              participationType: email.participationType,
               occurredAt: email.occurredAt,
               externalId: email.externalId,
             },

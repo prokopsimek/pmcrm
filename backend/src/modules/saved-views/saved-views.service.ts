@@ -233,8 +233,3 @@ export class SavedViewsService {
     return view;
   }
 }
-
-
-
-
-

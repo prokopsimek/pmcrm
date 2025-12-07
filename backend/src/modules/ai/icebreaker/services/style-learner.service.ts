@@ -267,8 +267,3 @@ export class StyleLearnerService {
     };
   }
 }
-
-
-
-
-

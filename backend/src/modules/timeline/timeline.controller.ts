@@ -22,7 +22,8 @@ export class TimelineController {
   @ApiQuery({
     name: 'types',
     required: false,
-    description: 'Filter by event types (comma-separated): email, meeting, call, note, linkedin_message, linkedin_connection, whatsapp, other',
+    description:
+      'Filter by event types (comma-separated): email, meeting, call, note, linkedin_message, linkedin_connection, whatsapp, other',
     type: String,
   })
   @ApiQuery({
@@ -55,4 +56,3 @@ export class TimelineController {
     return this.timelineService.getTimeline(userId, contactId, query);
   }
 }
-

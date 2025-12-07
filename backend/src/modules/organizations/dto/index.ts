@@ -4,8 +4,3 @@
  * so we only need minimal DTOs for our additional endpoints
  */
 export * from './organization-response.dto';
-
-
-
-
-

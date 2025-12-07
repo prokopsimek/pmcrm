@@ -1,32 +1,35 @@
 import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-  forwardRef,
+    BadRequestException,
+    Inject,
+    Injectable,
+    Logger,
+    NotFoundException,
+    UnauthorizedException,
+    forwardRef,
 } from '@nestjs/common';
+import type { Queue } from 'bull';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { DeduplicationService } from '../shared/deduplication.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-  DisconnectIntegrationResponseDto,
-  ImportContactsDto,
-  ImportContactsResponseDto,
-  IntegrationStatusResponseDto,
-  OAuthCallbackResponseDto,
-  OAuthInitiateResponseDto,
-  SyncContactsResponseDto,
+    DisconnectIntegrationResponseDto,
+    ImportContactsDto,
+    ImportContactsResponseDto,
+    IntegrationStatusResponseDto,
+    OAuthCallbackResponseDto,
+    OAuthInitiateResponseDto,
+    SyncContactsResponseDto,
 } from './dto/import-contacts.dto';
+import { ImportJobResponseDto } from './dto/import-job.dto';
 import {
-  DuplicateMatchDto,
-  ImportPreviewQueryDto,
-  ImportPreviewResponseDto,
-  ImportSummaryDto,
-  PreviewContactDto,
+    DuplicateMatchDto,
+    ImportPreviewQueryDto,
+    ImportPreviewResponseDto,
+    ImportSummaryDto,
+    PreviewContactDto,
 } from './dto/import-preview.dto';
+import type { GoogleContactsImportJobData } from './jobs/google-contacts-import.job';
 
 interface GoogleContactsResponse {
   connections?: any[];
@@ -59,7 +62,7 @@ export class GoogleContactsService {
     'https://www.googleapis.com/auth/contacts.readonly',
     'https://www.googleapis.com/auth/contacts.other.readonly',
   ];
-  private readonly stateStore = new Map<string, { userId: string; timestamp: number }>();
+  private readonly stateStore = new Map<string, { userId: string; timestamp: number; orgSlug?: string }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,9 +74,11 @@ export class GoogleContactsService {
 
   /**
    * Initiate OAuth flow for Google Contacts
+   * @param userId - The user ID initiating the OAuth flow
+   * @param orgSlug - Optional organization slug for redirect after callback
    */
-  async initiateOAuthFlow(userId: string): Promise<OAuthInitiateResponseDto> {
-    this.logger.log(`Initiating OAuth flow for user ${userId}`);
+  async initiateOAuthFlow(userId: string, orgSlug?: string): Promise<OAuthInitiateResponseDto> {
+    this.logger.log(`Initiating OAuth flow for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
 
     // Check if OAuth is properly configured
     if (!this.oauthService.isConfigured('google')) {
@@ -83,19 +88,23 @@ export class GoogleContactsService {
     }
 
     try {
+      // Include orgSlug in metadata if provided
+      const metadata = orgSlug ? { orgSlug } : undefined;
+
       const authUrl = this.oauthService.generateAuthUrl({
         scopes: this.GOOGLE_SCOPES,
         userId,
         provider: 'google',
         usePKCE: false, // PKCE not required for server-side apps with client_secret
+        metadata,
       });
 
       // Extract state from URL
       const url = new URL(authUrl);
       const state = url.searchParams.get('state') || '';
 
-      // Store state for validation
-      this.stateStore.set(state, { userId, timestamp: Date.now() });
+      // Store state for validation (with orgSlug metadata)
+      this.stateStore.set(state, { userId, timestamp: Date.now(), orgSlug });
 
       return {
         authUrl,
@@ -119,13 +128,14 @@ export class GoogleContactsService {
    * without requiring an authenticated session.
    */
   async handleOAuthCallback(code: string, state: string): Promise<OAuthCallbackResponseDto> {
-    // Extract and validate state, get userId
-    const userId = this.extractUserIdFromState(state);
-    if (!userId) {
+    // Extract and validate state, get userId and orgSlug
+    const stateData = this.extractStateData(state);
+    if (!stateData) {
       throw new BadRequestException('Invalid or expired state parameter');
     }
 
-    this.logger.log(`Handling OAuth callback for user ${userId}`);
+    const { userId, orgSlug } = stateData;
+    this.logger.log(`Handling OAuth callback for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
 
     try {
       // Exchange code for tokens
@@ -163,6 +173,7 @@ export class GoogleContactsService {
         success: true,
         integrationId: integration.id,
         message: 'Google Contacts connected successfully',
+        orgSlug,
       };
     } catch (error) {
       this.logger.error(
@@ -498,6 +509,70 @@ export class GoogleContactsService {
   }
 
   /**
+   * Queue import job for background processing
+   * Returns immediately with job ID for progress tracking
+   */
+  async queueImportJob(
+    userId: string,
+    dto: ImportContactsDto,
+    queue: Queue,
+  ): Promise<ImportJobResponseDto> {
+    this.logger.log(`Queueing import job for user ${userId}`);
+
+    const integration = await this.getActiveIntegration(userId);
+
+    // Fetch ALL contacts from Google (iterates through all pages)
+    const { contacts: allContacts } = await this.fetchAllContacts(userId);
+
+    // Filter by selected IDs if provided
+    let contactsToImport = allContacts;
+    if (dto.selectedContactIds && dto.selectedContactIds.length > 0) {
+      const selectedIds = dto.selectedContactIds;
+      contactsToImport = allContacts.filter((contact) => selectedIds.includes(contact.externalId));
+    }
+
+    // Create import job record
+    const importJob = await this.prisma.importJob.create({
+      data: {
+        userId,
+        type: 'google_contacts',
+        status: 'queued',
+        totalCount: contactsToImport.length,
+        metadata: {
+          selectedContactIds: dto.selectedContactIds?.length ?? null,
+          tagMapping: dto.tagMapping ?? null,
+        },
+      },
+    });
+
+    // Queue the job
+    const jobData: GoogleContactsImportJobData = {
+      jobId: importJob.id,
+      userId,
+      integrationId: integration.id,
+      contacts: contactsToImport,
+      importDto: dto,
+    };
+
+    await queue.add('import-google-contacts', jobData, {
+      jobId: `google-contacts-import-${importJob.id}`,
+      attempts: 1, // No retries - batches handle errors internally
+      removeOnComplete: true,
+      removeOnFail: false,
+    });
+
+    this.logger.log(
+      `Import job ${importJob.id} queued for user ${userId} with ${contactsToImport.length} contacts`,
+    );
+
+    return {
+      jobId: importJob.id,
+      status: 'queued',
+      message: `Import job started. ${contactsToImport.length} contacts will be imported in the background.`,
+    };
+  }
+
+  /**
    * Sync incremental changes from Google Contacts
    */
   async syncIncrementalChanges(userId: string): Promise<SyncContactsResponseDto> {
@@ -726,10 +801,10 @@ export class GoogleContactsService {
   // Private helper methods
 
   /**
-   * Extract userId from state parameter
+   * Extract state data including userId and orgSlug
    * Returns null if state is invalid or expired
    */
-  private extractUserIdFromState(state: string): string | null {
+  private extractStateData(state: string): { userId: string; orgSlug?: string } | null {
     // Reject obviously invalid states
     if (!state || state === 'invalid-state') {
       return null;
@@ -752,7 +827,7 @@ export class GoogleContactsService {
     // Clean up used state
     this.stateStore.delete(state);
 
-    return stored.userId;
+    return { userId: stored.userId, orgSlug: stored.orgSlug };
   }
 
   /**

@@ -16,8 +16,3 @@ import { DatabaseModule } from '@/shared/database/database.module';
   exports: [OrganizationsService],
 })
 export class OrganizationsModule {}
-
-
-
-
-

@@ -46,11 +46,12 @@ export function useGoogleContactsPreview(pageToken?: string) {
 export function useInitiateGoogleAuth() {
   return useMutation({
     mutationFn: (orgSlug?: string) => {
-      // Store orgSlug in localStorage before OAuth redirect
+      // Store orgSlug in localStorage as backup for redirect
       if (typeof window !== 'undefined' && orgSlug) {
         localStorage.setItem('oauth_redirect_org', orgSlug);
       }
-      return integrationsService.google.initiateAuth();
+      // Pass orgSlug to backend for state-based redirect
+      return integrationsService.google.initiateAuth(orgSlug);
     },
     onSuccess: (data) => {
       // Redirect to Google OAuth
@@ -198,11 +199,12 @@ export function useGoogleCalendarStatus() {
 export function useInitiateGoogleCalendarAuth() {
   return useMutation({
     mutationFn: (orgSlug?: string) => {
-      // Store orgSlug in localStorage before OAuth redirect
+      // Store orgSlug in localStorage as backup for redirect
       if (typeof window !== 'undefined' && orgSlug) {
         localStorage.setItem('oauth_redirect_org', orgSlug);
       }
-      return integrationsService.googleCalendar.initiateAuth();
+      // Pass orgSlug to backend for state-based redirect
+      return integrationsService.googleCalendar.initiateAuth(orgSlug);
     },
     onSuccess: (data) => {
       // Redirect to Google Calendar OAuth

@@ -181,7 +181,8 @@ export class GoogleCalendarClientService {
 
     // Filter to only include calendars with at least reader access
     const calendars = (data.items || []).filter(
-      (cal) => cal.accessRole === 'reader' || cal.accessRole === 'writer' || cal.accessRole === 'owner',
+      (cal) =>
+        cal.accessRole === 'reader' || cal.accessRole === 'writer' || cal.accessRole === 'owner',
     );
 
     // Sort: primary calendar first, then alphabetically by name

@@ -414,8 +414,3 @@ describe('CalendarContactImporterService', () => {
     });
   });
 });
-
-
-
-
-

@@ -88,8 +88,3 @@ export class InvitationResponseDto {
     name: string | null;
   };
 }
-
-
-
-
-

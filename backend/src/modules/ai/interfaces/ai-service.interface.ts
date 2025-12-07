@@ -3,7 +3,7 @@
  * All AI providers (Google, OpenAI, Anthropic) must implement this interface
  */
 
-import type { GenerationContext, MessageVariation, LLMProvider } from '../icebreaker/types';
+import type { GenerationContext, LLMProvider, MessageVariation } from '../icebreaker/types';
 
 // Re-export shared schemas types
 export type { AIRecommendation, TimelineSummary } from '../services/gemini.service';
@@ -25,6 +25,7 @@ export interface EmailInput {
   subject: string;
   snippet: string;
   direction: 'inbound' | 'outbound';
+  participationType: 'sender' | 'recipient' | 'cc';
   date: Date;
 }
 
@@ -128,8 +129,3 @@ export interface IAIService {
  * AI Service injection token
  */
 export const AI_SERVICE = Symbol('AI_SERVICE');
-
-
-
-
-

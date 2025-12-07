@@ -1,37 +1,37 @@
 import {
-  BadRequestException,
-  forwardRef,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
+    BadRequestException,
+    forwardRef,
+    Inject,
+    Injectable,
+    Logger,
+    NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-  CalendarConfigResponseDto,
-  CalendarListResponseDto,
-  UpdateCalendarSelectionDto,
+    CalendarConfigResponseDto,
+    CalendarListResponseDto,
+    UpdateCalendarSelectionDto,
 } from './dto/calendar-config.dto';
 import {
-  CalendarCallbackResponseDto,
-  CalendarConnectionResponseDto,
-  CalendarDisconnectResultDto,
-  CalendarStatusResponseDto,
-  CalendarSyncResultDto,
+    CalendarCallbackResponseDto,
+    CalendarConnectionResponseDto,
+    CalendarDisconnectResultDto,
+    CalendarStatusResponseDto,
+    CalendarSyncResultDto,
 } from './dto/calendar-connection.dto';
 import {
-  CalendarAttendeeDto,
-  CalendarEventDto,
-  FetchEventsResponseDto,
+    CalendarAttendeeDto,
+    CalendarEventDto,
+    FetchEventsResponseDto,
 } from './dto/calendar-event.dto';
 import { MeetingNotesResponseDto } from './dto/meeting-notes.dto';
 import { CalendarSyncJob } from './jobs/calendar-sync.job';
 import { AttendeeMatcherService } from './services/attendee-matcher.service';
 import { CalendarContactImporterService } from './services/calendar-contact-importer.service';
 import {
-  FetchEventsOptions,
-  GoogleCalendarClientService,
+    FetchEventsOptions,
+    GoogleCalendarClientService,
 } from './services/google-calendar-client.service';
 import { OutlookCalendarClientService } from './services/outlook-calendar-client.service';
 
@@ -51,7 +51,7 @@ export interface FetchEventsServiceOptions {
 export class CalendarSyncService {
   private readonly logger = new Logger(CalendarSyncService.name);
   private readonly GOOGLE_CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
-  private readonly stateStore = new Map<string, { userId: string; timestamp: number }>();
+  private readonly stateStore = new Map<string, { userId: string; timestamp: number; orgSlug?: string }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -68,10 +68,14 @@ export class CalendarSyncService {
   /**
    * Initiate Google Calendar OAuth flow
    * @param userId - User ID initiating the connection
+   * @param orgSlug - Optional organization slug for redirect after callback
    * @returns OAuth URL and state for CSRF protection
    */
-  async connectGoogleCalendar(userId: string): Promise<CalendarConnectionResponseDto> {
-    this.logger.log(`Initiating Google Calendar OAuth for user ${userId}`);
+  async connectGoogleCalendar(userId: string, orgSlug?: string): Promise<CalendarConnectionResponseDto> {
+    this.logger.log(`Initiating Google Calendar OAuth for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
+
+    // Include orgSlug in metadata if provided
+    const metadata = orgSlug ? { orgSlug } : undefined;
 
     const authUrl = this.oauthService.generateAuthUrl({
       scopes: this.GOOGLE_CALENDAR_SCOPES,
@@ -79,6 +83,7 @@ export class CalendarSyncService {
       provider: 'google',
       usePKCE: false, // PKCE not required for server-side apps with client_secret
       integration: 'google-calendar',
+      metadata,
     });
 
     // Extract state from URL or generate one
@@ -90,8 +95,8 @@ export class CalendarSyncService {
       state = this.generateState(userId);
     }
 
-    // Store state for validation
-    this.stateStore.set(state, { userId, timestamp: Date.now() });
+    // Store state for validation (with orgSlug)
+    this.stateStore.set(state, { userId, timestamp: Date.now(), orgSlug });
 
     return {
       authUrl,
@@ -150,13 +155,13 @@ export class CalendarSyncService {
    * @param code - Authorization code from OAuth callback
    * @param state - State parameter for CSRF validation
    * @param provider - OAuth provider ('google' or 'microsoft')
-   * @returns Callback result with integration ID
+   * @returns Callback result with integration ID and orgSlug
    */
   async handleOAuthCallback(
     code: string,
     state: string,
     provider: 'google' | 'microsoft',
-  ): Promise<CalendarCallbackResponseDto> {
+  ): Promise<CalendarCallbackResponseDto & { orgSlug?: string }> {
     // Extract userId from the stored state (user is not authenticated in callback)
     const storedState = this.stateStore.get(state);
     if (!storedState) {
@@ -169,11 +174,11 @@ export class CalendarSyncService {
       throw new BadRequestException('Invalid or expired state parameter');
     }
 
-    // Extract userId and clean up used state
-    const userId = storedState.userId;
+    // Extract userId, orgSlug and clean up used state
+    const { userId, orgSlug } = storedState;
     this.stateStore.delete(state);
 
-    this.logger.log(`Handling OAuth callback for user ${userId}, provider: ${provider}`);
+    this.logger.log(`Handling OAuth callback for user ${userId}, provider: ${provider}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
 
     try {
       // Exchange code for tokens
@@ -255,6 +260,7 @@ export class CalendarSyncService {
         success: true,
         integrationId: integration.id,
         message: `${integrationName} connected successfully`,
+        orgSlug,
       };
     } catch (error) {
       this.logger.error(
@@ -815,7 +821,9 @@ export class CalendarSyncService {
       } catch (error: any) {
         // Sync token expired, perform full sync with period limit and pagination
         if (error?.status === 410) {
-          this.logger.log('[incrementalSync] Sync token expired, performing full sync with pagination');
+          this.logger.log(
+            '[incrementalSync] Sync token expired, performing full sync with pagination',
+          );
           response = await this.fetchAllEventsWithPagination(
             accessToken,
             new Date(Date.now() - syncPeriodDays * 24 * 60 * 60 * 1000),

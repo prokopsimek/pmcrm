@@ -5,22 +5,22 @@
  * US-051: AI icebreaker message generation
  */
 
+import { google } from '@ai-sdk/google';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { google } from '@ai-sdk/google';
-import { generateText, generateObject } from 'ai';
+import { generateObject, generateText } from 'ai';
 import { z } from 'zod';
-import type { GenerationContext, MessageVariation, LLMProvider } from '../icebreaker/types';
-import { LLMProviders } from '../icebreaker/types';
 import { buildPrompt, PROMPT_VERSION } from '../icebreaker/templates/prompts';
+import type { GenerationContext, LLMProvider, MessageVariation } from '../icebreaker/types';
+import { LLMProviders } from '../icebreaker/types';
 import type {
-  IAIService,
-  IcebreakerResult,
-  EmailInput,
-  ContactInfoInput,
-  ReminderInput,
-  TimelineSummaryResult,
-  AIRecommendationResult,
+    AIRecommendationResult,
+    ContactInfoInput,
+    EmailInput,
+    IAIService,
+    IcebreakerResult,
+    ReminderInput,
+    TimelineSummaryResult,
 } from '../interfaces';
 
 // Schema for AI-generated recommendations
@@ -121,10 +121,7 @@ export class GeminiService implements IAIService {
 
     const emailContext = emails
       .slice(0, 50) // Limit to last 50 emails for context window
-      .map(
-        (e) =>
-          `[${e.date.toISOString().split('T')[0]}] ${e.direction === 'outbound' ? 'You → ' : '← '}${contactName}: ${e.subject}\n${e.snippet}`,
-      )
+      .map((e) => this.formatEmailForContext(e, contactName))
       .join('\n\n');
 
     const { object } = await generateObject({
@@ -132,17 +129,37 @@ export class GeminiService implements IAIService {
       schema: TimelineSummarySchema,
       prompt: `Analyze the following email communication history with ${contactName} and provide a structured summary.
 
+IMPORTANT: Pay attention to the participation type:
+- "Direct:" indicates direct communication where ${contactName} was the sender or direct recipient
+- "(CC)" indicates ${contactName} was only copied on the email, not the primary communicator
+
 EMAIL HISTORY:
 ${emailContext}
 
 Provide:
 1. A concise summary of the overall communication history
 2. Key topics discussed with their current status
-3. Assessment of relationship strength
+3. Assessment of relationship strength (consider that CC'd emails indicate weaker direct engagement)
 4. Brief note on communication style/patterns`,
     });
 
     return object;
+  }
+
+  /**
+   * Format a single email for AI context with participation type distinction
+   */
+  private formatEmailForContext(email: EmailInput, contactName: string): string {
+    const date = email.date.toISOString().split('T')[0];
+
+    if (email.participationType === 'cc') {
+      // CC'd email - contact was just copied
+      return `[${date}] (CC) ${contactName} was copied on: ${email.subject}\n${email.snippet}`;
+    }
+
+    // Direct communication (sender or recipient)
+    const directionIndicator = email.direction === 'outbound' ? 'You → ' : '← ';
+    return `[${date}] Direct: ${directionIndicator}${contactName}: ${email.subject}\n${email.snippet}`;
   }
 
   /**
@@ -160,11 +177,12 @@ Provide:
 
     const emailContext = emails
       .slice(0, 30) // Limit to last 30 emails for recommendations
-      .map(
-        (e) =>
-          `[${e.date.toISOString().split('T')[0]}] ${e.direction === 'outbound' ? 'You → ' : '← '}${contactName}: ${e.subject}\n${e.snippet}`,
-      )
+      .map((e) => this.formatEmailForContext(e, contactName))
       .join('\n\n');
+
+    // Count direct vs CC'd emails for context
+    const directEmails = emails.filter((e) => e.participationType !== 'cc').length;
+    const ccEmails = emails.filter((e) => e.participationType === 'cc').length;
 
     const contextInfo = [
       contactInfo.company && `Company: ${contactInfo.company}`,
@@ -172,6 +190,7 @@ Provide:
       contactInfo.lastContactDate &&
         `Last contact: ${contactInfo.lastContactDate.toISOString().split('T')[0]}`,
       contactInfo.tags?.length && `Tags: ${contactInfo.tags.join(', ')}`,
+      `Direct emails: ${directEmails}, CC'd emails: ${ccEmails}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -185,6 +204,12 @@ Provide:
       schema: RecommendationsSchema,
       prompt: `Based on the email communication history with ${contactName}, suggest actionable next steps.
 
+IMPORTANT CONTEXT ABOUT EMAIL PARTICIPATION:
+- "Direct:" indicates direct communication where ${contactName} was the sender or direct recipient
+- "(CC)" indicates ${contactName} was only copied on the email - they were NOT the primary communicator
+- When someone is CC'd, do NOT recommend replying to them directly about that email thread
+- Focus recommendations on emails where ${contactName} was directly involved (sender or recipient)
+
 CONTACT INFO:
 ${contextInfo}
 
@@ -194,11 +219,12 @@ ${remindersContext}
 
 Generate 3-5 specific, actionable recommendations for maintaining/improving this relationship.
 Consider:
-- Open topics or pending items from emails
-- Time since last meaningful contact
+- Open topics or pending items from DIRECT emails only (not CC'd emails)
+- Time since last meaningful DIRECT contact
 - Relationship stage and appropriate follow-up frequency
-- Any upcoming events or deadlines mentioned
-Do NOT suggest actions that are already covered by existing reminders.`,
+- Any upcoming events or deadlines mentioned in direct communication
+Do NOT suggest actions that are already covered by existing reminders.
+Do NOT suggest replying to or following up on emails where ${contactName} was only CC'd.`,
     });
 
     return object.recommendations;

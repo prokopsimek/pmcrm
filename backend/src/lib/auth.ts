@@ -17,6 +17,10 @@ const adapter = new PrismaPg(pool);
 // Create Prisma client with adapter
 const prisma = new PrismaClient({ adapter });
 
+// Environment detection for cookie configuration
+const isProduction = process.env.NODE_ENV === 'production';
+const cookieDomain = process.env.COOKIE_DOMAIN;
+
 /**
  * Better Auth Configuration
  *
@@ -125,36 +129,36 @@ export const auth = betterAuth({
     },
   },
 
-  // Advanced options
+  // Advanced options - environment-aware cookie configuration
   advanced: {
-    // Enable cross-subdomain cookies for shared domain (e.g., *.apps.dx.tools)
-    crossSubDomainCookies: {
-      enabled: true,
-      // Domain for cookie sharing - set via env var or default to parent domain
-      domain: process.env.COOKIE_DOMAIN || '.apps.dx.tools',
-    },
-    // Cookie attributes for cross-origin authentication
-    // ALL cookies must have SameSite=None for cross-origin to work
-    cookies: {
-      session_token: {
-        attributes: {
-          sameSite: 'none' as const,
-          secure: true,
-        },
-      },
-      session_data: {
-        attributes: {
-          sameSite: 'none' as const,
-          secure: true,
-        },
-      },
-      dont_remember: {
-        attributes: {
-          sameSite: 'none' as const,
-          secure: true,
-        },
-      },
-    },
+    // Only enable cross-subdomain cookies if COOKIE_DOMAIN is explicitly set
+    crossSubDomainCookies: cookieDomain
+      ? { enabled: true, domain: cookieDomain }
+      : { enabled: false },
+    // Cookie attributes for cross-origin authentication (production only)
+    // Development uses better-auth defaults (sameSite: 'lax', secure: false)
+    cookies: isProduction
+      ? {
+          session_token: {
+            attributes: {
+              sameSite: 'none' as const,
+              secure: true,
+            },
+          },
+          session_data: {
+            attributes: {
+              sameSite: 'none' as const,
+              secure: true,
+            },
+          },
+          dont_remember: {
+            attributes: {
+              sameSite: 'none' as const,
+              secure: true,
+            },
+          },
+        }
+      : undefined,
   },
 
   // Trusted origins for CORS

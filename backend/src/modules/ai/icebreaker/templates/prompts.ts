@@ -144,8 +144,3 @@ export function buildPrompt(variables: PromptVariables): string {
 
   return prompt;
 }
-
-
-
-
-

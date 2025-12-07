@@ -34,8 +34,3 @@ export class CreateSavedViewDto {
   @IsOptional()
   isDefault?: boolean;
 }
-
-
-
-
-

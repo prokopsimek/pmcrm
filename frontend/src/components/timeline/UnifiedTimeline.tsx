@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import {
     Calendar,
     ChevronDown,
+    Copy,
     FileText,
     Inbox,
     Linkedin,
@@ -235,14 +236,19 @@ function TimelineEventItem({
   isExpanded: boolean;
   onToggle: () => void;
 }) {
-  const { icon, bgColor, textColor } = getEventTypeStyles(event.type, event.direction);
+  const { icon, bgColor, textColor } = getEventTypeStyles(
+    event.type,
+    event.direction
+  );
+  const isCC = event.type === 'email' && event.participationType === 'cc';
 
   return (
     <div
       className={cn(
         'rounded-lg border overflow-hidden transition-all duration-200',
         bgColor,
-        isExpanded && 'ring-2 ring-primary/20'
+        isExpanded && 'ring-2 ring-primary/20',
+        isCC && 'opacity-75'
       )}
     >
       {/* Clickable Header */}
@@ -261,10 +267,18 @@ function TimelineEventItem({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <p className="font-medium text-sm truncate">{event.title}</p>
+              <p className={cn('font-medium text-sm truncate', isCC && 'italic')}>
+                {event.title}
+              </p>
               <Badge variant="secondary" className="text-xs shrink-0">
                 {getEventTypeLabel(event.type)}
               </Badge>
+              {isCC && (
+                <Badge variant="outline" className="text-xs shrink-0 bg-gray-100 dark:bg-gray-800">
+                  <Copy className="h-3 w-3 mr-1" />
+                  CC
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground whitespace-nowrap">
@@ -279,7 +293,8 @@ function TimelineEventItem({
             </div>
           </div>
           {!isExpanded && event.snippet && (
-            <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+            <p className={cn('text-sm text-muted-foreground line-clamp-2 mt-1', isCC && 'italic')}>
+              {isCC && '(Copied) '}
               {event.snippet}
             </p>
           )}
@@ -290,7 +305,14 @@ function TimelineEventItem({
       {isExpanded && event.snippet && (
         <div className="px-3 pb-3 pt-0">
           <div className="ml-11 border-t pt-3">
-            <p className="text-sm whitespace-pre-wrap">{event.snippet}</p>
+            {isCC && (
+              <p className="text-xs text-muted-foreground mb-2 italic">
+                This contact was only copied (CC) on this email, not a direct participant.
+              </p>
+            )}
+            <p className={cn('text-sm whitespace-pre-wrap', isCC && 'italic text-muted-foreground')}>
+              {event.snippet}
+            </p>
             {event.source && (
               <p className="text-xs text-muted-foreground mt-2">
                 Source: {event.source}

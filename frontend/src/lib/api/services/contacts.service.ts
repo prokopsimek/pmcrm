@@ -265,6 +265,7 @@ export interface TimelineEvent {
   title: string;
   snippet?: string;
   direction?: 'inbound' | 'outbound';
+  participationType?: 'sender' | 'recipient' | 'cc';
   source?: string;
   metadata?: Record<string, unknown>;
 }

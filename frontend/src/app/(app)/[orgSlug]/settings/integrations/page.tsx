@@ -343,7 +343,7 @@ export default function IntegrationsPage() {
                       />
                     </svg>
                   }
-                  status={googleStatus?.integration?.status || 'DISCONNECTED'}
+                  status={googleStatus?.isConnected ? 'ACTIVE' : 'DISCONNECTED'}
                   isConnected={googleStatus?.isConnected || false}
                   isLoading={initiateGoogleAuth.isPending || disconnectGoogle.isPending}
                   onConnect={handleConnectGoogle}

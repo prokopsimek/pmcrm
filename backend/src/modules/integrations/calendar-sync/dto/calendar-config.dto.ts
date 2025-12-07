@@ -77,7 +77,9 @@ export class CalendarConfigResponseDto {
   @IsBoolean()
   syncEnabled: boolean;
 
-  @ApiProperty({ description: 'Whether the calendar integration is configured (calendars selected)' })
+  @ApiProperty({
+    description: 'Whether the calendar integration is configured (calendars selected)',
+  })
   @IsBoolean()
   isConfigured: boolean;
 
@@ -96,4 +98,3 @@ export class CalendarConfigResponseDto {
   @IsOptional()
   lastContactImportAt?: Date;
 }
-

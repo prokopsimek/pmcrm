@@ -23,8 +23,3 @@ export class CreateNoteDto {
   @IsOptional()
   isPinned?: boolean;
 }
-
-
-
-
-

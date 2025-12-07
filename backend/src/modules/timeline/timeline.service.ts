@@ -12,6 +12,7 @@ interface RawTimelineEvent {
   title: string;
   snippet?: string;
   direction?: 'inbound' | 'outbound';
+  participationType?: 'sender' | 'recipient' | 'cc';
   source?: string;
   metadata?: Record<string, unknown>;
 }
@@ -160,6 +161,7 @@ export class TimelineService {
         subject: true,
         snippet: true,
         direction: true,
+        participationType: true,
         occurredAt: true,
         source: true,
         threadId: true,
@@ -174,6 +176,7 @@ export class TimelineService {
       title: email.subject || '(No subject)',
       snippet: email.snippet || undefined,
       direction: email.direction === 'INBOUND' ? 'inbound' : 'outbound',
+      participationType: email.participationType.toLowerCase() as 'sender' | 'recipient' | 'cc',
       source: email.source,
       metadata: {
         threadId: email.threadId,
@@ -438,6 +441,7 @@ export class TimelineService {
       title: event.title,
       snippet: event.snippet,
       direction: event.direction,
+      participationType: event.participationType,
       source: event.source,
       metadata: event.metadata,
     };

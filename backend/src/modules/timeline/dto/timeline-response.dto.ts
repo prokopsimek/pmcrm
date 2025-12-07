@@ -24,4 +24,3 @@ export class TimelineResponseDto {
    */
   hasMore: boolean;
 }
-

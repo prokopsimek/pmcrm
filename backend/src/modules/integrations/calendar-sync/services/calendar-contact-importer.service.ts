@@ -5,13 +5,13 @@ import { PrismaService } from '../../../../shared/database/prisma.service';
 import { OAuthService } from '../../shared/oauth.service';
 import { CalendarEventDto } from '../dto';
 import {
-    CalendarContactsPreviewQueryDto,
-    CalendarContactsPreviewResponseDto,
-    CalendarDuplicateMatchDto,
-    CalendarImportSummaryDto,
-    ImportCalendarContactsDto,
-    ImportCalendarContactsResponseDto,
-    PreviewAttendeeDto,
+  CalendarContactsPreviewQueryDto,
+  CalendarContactsPreviewResponseDto,
+  CalendarDuplicateMatchDto,
+  CalendarImportSummaryDto,
+  ImportCalendarContactsDto,
+  ImportCalendarContactsResponseDto,
+  PreviewAttendeeDto,
 } from '../dto/calendar-import.dto';
 import { AttendeeMatcherService } from './attendee-matcher.service';
 import { GoogleCalendarClientService } from './google-calendar-client.service';

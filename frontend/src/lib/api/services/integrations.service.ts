@@ -27,10 +27,13 @@ export const integrationsService = {
   google: {
     /**
      * Get Google OAuth authorization URL
+     * @param orgSlug - Optional organization slug for redirect after callback
      */
-    async initiateAuth(): Promise<OAuthInitiateResponse> {
+    async initiateAuth(orgSlug?: string): Promise<OAuthInitiateResponse> {
+      const params = orgSlug ? { orgSlug } : undefined;
       const response = await apiClient.get<OAuthInitiateResponse>(
-        '/integrations/google/auth'
+        '/integrations/google/auth',
+        params
       );
       return response.data;
     },
@@ -254,10 +257,14 @@ export const integrationsService = {
   googleCalendar: {
     /**
      * Initiate Google Calendar OAuth flow
+     * @param orgSlug - Optional organization slug for redirect after callback
      */
-    async initiateAuth(): Promise<{ authUrl: string; state: string; scopes: string[] }> {
+    async initiateAuth(orgSlug?: string): Promise<{ authUrl: string; state: string; scopes: string[] }> {
+      const params = orgSlug ? { orgSlug } : undefined;
       const response = await apiClient.post<{ authUrl: string; state: string; scopes: string[] }>(
-        '/integrations/google-calendar/connect'
+        '/integrations/google-calendar/connect',
+        undefined, // no body
+        { params }
       );
       return response.data;
     },

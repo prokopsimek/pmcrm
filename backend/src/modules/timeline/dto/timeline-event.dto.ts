@@ -35,6 +35,12 @@ export class TimelineEventDto {
   direction?: 'inbound' | 'outbound';
 
   /**
+   * How the contact participated in the email (sender, recipient, or CC)
+   * Only applicable for email events
+   */
+  participationType?: 'sender' | 'recipient' | 'cc';
+
+  /**
    * Source of the event (gmail, outlook, manual, etc.)
    */
   source?: string;
@@ -44,4 +50,3 @@ export class TimelineEventDto {
    */
   metadata?: Record<string, unknown>;
 }
-
