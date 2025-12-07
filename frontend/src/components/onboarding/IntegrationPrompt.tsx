@@ -17,6 +17,7 @@ const AVAILABLE_INTEGRATIONS = [
     id: 'google',
     name: 'Google Contacts',
     description: 'Sync your Google contacts and calendar',
+    comingSoon: false,
     icon: (
       <svg className="w-8 h-8" viewBox="0 0 24 24">
         <path
@@ -42,6 +43,7 @@ const AVAILABLE_INTEGRATIONS = [
     id: 'microsoft',
     name: 'Microsoft 365',
     description: 'Connect Outlook contacts and calendar',
+    comingSoon: true,
     icon: (
       <svg className="w-8 h-8" viewBox="0 0 23 23">
         <path fill="#f3f3f3" d="M0 0h23v23H0z" />
@@ -81,24 +83,45 @@ export function IntegrationPrompt({ onNext, onBack, onSkip, showBack }: Integrat
         {AVAILABLE_INTEGRATIONS.map((integration) => (
           <div
             key={integration.id}
-            className="border border-gray-200 rounded-lg p-6 hover:border-blue-300 transition-colors"
+            className={`border border-gray-200 rounded-lg p-6 transition-colors ${
+              integration.comingSoon ? 'opacity-75' : 'hover:border-blue-300'
+            }`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex-shrink-0">{integration.icon}</div>
+                <div className={`flex-shrink-0 ${integration.comingSoon ? 'grayscale' : ''}`}>
+                  {integration.icon}
+                </div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{integration.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900">{integration.name}</h3>
+                    {integration.comingSoon && (
+                      <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-full">
+                        Coming Soon
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-500">{integration.description}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleConnect(integration.id)}
-                disabled={connecting === integration.id}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {connecting === integration.id ? 'Connecting...' : 'Connect'}
-              </button>
+              {integration.comingSoon ? (
+                <button
+                  type="button"
+                  disabled
+                  className="px-4 py-2 bg-gray-300 text-gray-500 rounded-md cursor-not-allowed"
+                >
+                  Coming Soon
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleConnect(integration.id)}
+                  disabled={connecting === integration.id}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {connecting === integration.id ? 'Connecting...' : 'Connect'}
+                </button>
+              )}
             </div>
           </div>
         ))}

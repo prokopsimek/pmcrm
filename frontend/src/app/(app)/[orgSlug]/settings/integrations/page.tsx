@@ -220,8 +220,8 @@ export default function IntegrationsPage() {
     } else if (integration === 'google-calendar') {
       syncGoogleCalendar.mutate(undefined, {
         onSuccess: (result) => {
-          toast.success('Google Calendar synced', {
-            description: `Synced ${result.synced} events`,
+          toast.success('Google Calendar sync started', {
+            description: result.message,
           });
           // Set soft cooldown (for confirmation dialog)
           setSyncCooldowns((prev) => ({
@@ -553,7 +553,8 @@ export default function IntegrationsPage() {
                   }
                   status="DISCONNECTED"
                   isConnected={false}
-                  onConnect={() => toast.info('Microsoft integration coming soon!')}
+                  comingSoon={true}
+                  onConnect={() => {}}
                   onDisconnect={() => {}}
                 />
               </div>
@@ -725,7 +726,8 @@ export default function IntegrationsPage() {
                   }
                   status="DISCONNECTED"
                   isConnected={false}
-                  onConnect={() => toast.info('WhatsApp integration coming soon!')}
+                  comingSoon={true}
+                  onConnect={() => {}}
                   onDisconnect={() => {}}
                 />
 

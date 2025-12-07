@@ -19,8 +19,6 @@ const SOURCE_OPTIONS: { value: ContactSource; label: string }[] = [
   { value: 'IMPORT', label: 'Import' },
   { value: 'GOOGLE_CONTACTS', label: 'Google Contacts' },
   { value: 'GOOGLE_CALENDAR', label: 'Google Calendar' },
-  { value: 'MICROSOFT_CONTACTS', label: 'Microsoft Contacts' },
-  { value: 'MICROSOFT_CALENDAR', label: 'Microsoft Calendar' },
   { value: 'LINKEDIN', label: 'LinkedIn' },
   { value: 'EMAIL', label: 'Email' },
   { value: 'API', label: 'API' },

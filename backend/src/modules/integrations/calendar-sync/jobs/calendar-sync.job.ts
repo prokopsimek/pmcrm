@@ -151,11 +151,12 @@ export class CalendarSyncJob implements OnModuleInit {
    * Queue an immediate sync for a specific user
    * @param userId - User ID to sync
    * @param type - Sync type ('incremental' or 'full')
+   * @returns The job ID for tracking
    */
   async queueImmediateSync(
     userId: string,
     type: 'incremental' | 'full' = 'incremental',
-  ): Promise<void> {
+  ): Promise<string> {
     const jobId = `calendar-sync-immediate-${userId}-${Date.now()}`;
 
     this.logger.debug(
@@ -172,6 +173,8 @@ export class CalendarSyncJob implements OnModuleInit {
     this.logger.log(
       `[queueImmediateSync] Queued immediate calendar sync for user ${userId}, jobId: ${jobId}`,
     );
+
+    return jobId;
   }
 
   /**

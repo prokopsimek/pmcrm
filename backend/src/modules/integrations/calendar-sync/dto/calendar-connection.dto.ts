@@ -31,7 +31,7 @@ export class CalendarCallbackResponseDto {
 }
 
 /**
- * Calendar sync result DTO
+ * Calendar sync result DTO (synchronous response)
  */
 export class CalendarSyncResultDto {
   synced: number;
@@ -40,6 +40,25 @@ export class CalendarSyncResultDto {
   deleted?: number;
   skipped?: boolean;
   syncedAt: Date;
+}
+
+/**
+ * Calendar sync job status type
+ */
+export type CalendarSyncJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+
+/**
+ * Calendar sync job response DTO (async background job)
+ */
+export class CalendarSyncJobResponseDto {
+  @IsString()
+  jobId: string;
+
+  @IsString()
+  status: CalendarSyncJobStatus;
+
+  @IsString()
+  message: string;
 }
 
 /**

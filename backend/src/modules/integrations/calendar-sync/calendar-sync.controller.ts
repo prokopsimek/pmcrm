@@ -5,7 +5,9 @@ import {
     Body,
     Controller,
     Delete,
+    forwardRef,
     Get,
+    Inject,
     Param,
     Post,
     Put,
@@ -28,7 +30,7 @@ import {
     CalendarConnectionResponseDto,
     CalendarDisconnectResultDto,
     CalendarStatusResponseDto,
-    CalendarSyncResultDto,
+    CalendarSyncJobResponseDto
 } from './dto/calendar-connection.dto';
 import { FetchEventsResponseDto } from './dto/calendar-event.dto';
 import {
@@ -38,6 +40,7 @@ import {
     ImportCalendarContactsResponseDto,
 } from './dto/calendar-import.dto';
 import { AddMeetingNotesDto, MeetingNotesResponseDto } from './dto/meeting-notes.dto';
+import { CalendarSyncJob } from './jobs/calendar-sync.job';
 import { CalendarContactImporterService } from './services/calendar-contact-importer.service';
 
 /**
@@ -51,6 +54,8 @@ export class CalendarSyncController {
     private readonly calendarSyncService: CalendarSyncService,
     private readonly calendarContactImporter: CalendarContactImporterService,
     private readonly configService: ConfigService,
+    @Inject(forwardRef(() => CalendarSyncJob))
+    private readonly calendarSyncJob: CalendarSyncJob,
   ) {}
 
   private getFrontendUrl(): string {
@@ -348,22 +353,28 @@ export class CalendarSyncController {
   }
 
   /**
-   * Trigger manual calendar sync
+   * Trigger manual calendar sync (queues background job)
    * POST /api/v1/calendar/sync
    */
   @Post('calendar/sync')
   @ApiOperation({ summary: 'Trigger manual calendar sync' })
   @ApiResponse({
     status: 200,
-    description: 'Calendar synced successfully',
-    type: CalendarSyncResultDto,
+    description: 'Calendar sync job queued',
+    type: CalendarSyncJobResponseDto,
   })
-  async manualSync(@CurrentUser() user: SessionUser | any): Promise<CalendarSyncResultDto> {
+  async manualSync(@CurrentUser() user: SessionUser | any): Promise<CalendarSyncJobResponseDto> {
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
     }
 
-    return this.calendarSyncService.incrementalSync(user.id);
+    const jobId = await this.calendarSyncJob.queueImmediateSync(user.id, 'incremental');
+
+    return {
+      jobId,
+      status: 'queued',
+      message: 'Calendar sync has been queued and will complete shortly',
+    };
   }
 
   /**

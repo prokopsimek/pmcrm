@@ -207,11 +207,10 @@ export interface SyncContactsResponse {
 
 // Calendar Sync Types
 
+export type CalendarSyncJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+
 export interface CalendarSyncResult {
-  synced: number;
-  added?: number;
-  updated?: number;
-  deleted?: number;
-  skipped?: boolean;
-  syncedAt: string;
+  jobId: string;
+  status: CalendarSyncJobStatus;
+  message: string;
 }

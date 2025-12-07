@@ -480,23 +480,17 @@ export const integrationsService = {
     },
 
     /**
-     * Trigger manual calendar sync
+     * Trigger manual calendar sync (queues background job)
      */
     async syncCalendar(): Promise<{
-      synced: number;
-      added?: number;
-      updated?: number;
-      deleted?: number;
-      skipped?: boolean;
-      syncedAt: string;
+      jobId: string;
+      status: 'queued' | 'processing';
+      message: string;
     }> {
       const response = await apiClient.post<{
-        synced: number;
-        added?: number;
-        updated?: number;
-        deleted?: number;
-        skipped?: boolean;
-        syncedAt: string;
+        jobId: string;
+        status: 'queued' | 'processing';
+        message: string;
       }>('/calendar/sync');
       return response.data;
     },
