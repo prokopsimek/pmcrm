@@ -2,6 +2,7 @@
  * Unit tests for CalendarContactImporterService
  * Tests contact import from calendar events
  */
+import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../../shared/database/prisma.service';
@@ -25,9 +26,14 @@ describe('CalendarContactImporterService', () => {
     contact: {
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     integrationLink: {
       create: jest.fn(),
+      upsert: jest.fn(),
+    },
+    calendarSyncConfig: {
+      update: jest.fn(),
     },
   };
 
@@ -50,6 +56,10 @@ describe('CalendarContactImporterService', () => {
     createContactFromAttendee: jest.fn(),
   };
 
+  const mockRelationshipScoreService = {
+    recalculateForContacts: jest.fn(),
+  };
+
   const mockUserId = 'user-123';
   const mockIntegrationId = 'integration-456';
 
@@ -64,6 +74,7 @@ describe('CalendarContactImporterService', () => {
         { provide: GoogleCalendarClientService, useValue: mockGoogleCalendarClient },
         { provide: OutlookCalendarClientService, useValue: mockOutlookCalendarClient },
         { provide: AttendeeMatcherService, useValue: mockAttendeeMatcherService },
+        { provide: RelationshipScoreService, useValue: mockRelationshipScoreService },
       ],
     }).compile();
 
@@ -90,9 +101,9 @@ describe('CalendarContactImporterService', () => {
         startTime: new Date('2024-11-01T10:00:00Z'),
         endTime: new Date('2024-11-01T11:00:00Z'),
         attendees: [
-          { email: 'john@company.com', displayName: 'John Doe' },
-          { email: 'jane@company.com', displayName: 'Jane Smith' },
-          { email: 'user@example.com', organizer: true },
+          { email: 'john@company.com', displayName: 'John Doe', responseStatus: 'accepted' },
+          { email: 'jane@company.com', displayName: 'Jane Smith', responseStatus: 'accepted' },
+          { email: 'user@example.com', organizer: true, responseStatus: 'accepted' },
         ],
       },
       {
@@ -101,8 +112,8 @@ describe('CalendarContactImporterService', () => {
         startTime: new Date('2024-11-02T14:00:00Z'),
         endTime: new Date('2024-11-02T15:00:00Z'),
         attendees: [
-          { email: 'jane@company.com', displayName: 'Jane Smith' },
-          { email: 'user@example.com', organizer: true },
+          { email: 'jane@company.com', displayName: 'Jane Smith', responseStatus: 'accepted' },
+          { email: 'user@example.com', organizer: true, responseStatus: 'accepted' },
         ],
       },
     ];
@@ -181,7 +192,7 @@ describe('CalendarContactImporterService', () => {
             subject: 'Meeting',
             startTime: new Date('2024-11-01T10:00:00Z'),
             endTime: new Date('2024-11-01T11:00:00Z'),
-            attendees: [{ email: 'person@gmail.com', displayName: 'Person Name' }],
+            attendees: [{ email: 'person@gmail.com', displayName: 'Person Name', responseStatus: 'accepted' }],
           },
         ],
         nextPageToken: undefined,
@@ -226,8 +237,8 @@ describe('CalendarContactImporterService', () => {
         startTime: new Date('2024-11-01T10:00:00Z'),
         endTime: new Date('2024-11-01T11:00:00Z'),
         attendees: [
-          { email: 'new@company.com', displayName: 'New Person' },
-          { email: 'existing@company.com', displayName: 'Existing Person' },
+          { email: 'new@company.com', displayName: 'New Person', responseStatus: 'accepted' },
+          { email: 'existing@company.com', displayName: 'Existing Person', responseStatus: 'accepted' },
         ],
       },
     ];
@@ -239,6 +250,7 @@ describe('CalendarContactImporterService', () => {
         items: mockEvents,
         nextPageToken: undefined,
       });
+      mockPrismaService.calendarSyncConfig.update.mockResolvedValue({});
     });
 
     it('should import new contacts and skip duplicates', async () => {
@@ -272,9 +284,64 @@ describe('CalendarContactImporterService', () => {
 
       expect(result.success).toBe(true);
       expect(result.imported).toBe(1);
+      expect(result.updated).toBe(0);
       expect(result.skipped).toBe(1);
       expect(result.failed).toBe(0);
       expect(mockPrismaService.contact.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('should update existing contacts when updateExisting is true', async () => {
+      // Existing contact
+      mockPrismaService.contact.findMany.mockResolvedValue([
+        {
+          id: 'existing-contact',
+          email: 'existing@company.com',
+          firstName: 'Existing',
+          lastName: 'Person',
+          company: 'Company',
+          lastContact: new Date('2024-10-01T00:00:00Z'),
+          metadata: { oldData: true },
+        },
+      ]);
+
+      // Mock contact update
+      mockPrismaService.contact.update.mockResolvedValue({
+        id: 'existing-contact',
+        email: 'existing@company.com',
+      });
+
+      // Mock contact creation for new contacts
+      mockPrismaService.contact.create.mockResolvedValue({
+        id: 'new-contact-id',
+        firstName: 'New',
+        lastName: 'Person',
+        email: 'new@company.com',
+      });
+
+      mockPrismaService.integrationLink.create.mockResolvedValue({});
+      mockPrismaService.integrationLink.upsert.mockResolvedValue({});
+
+      const result = await service.importContacts(mockUserId, {
+        startDate: '2024-11-01T00:00:00Z',
+        skipDuplicates: false,
+        updateExisting: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.imported).toBe(1);
+      expect(result.updated).toBe(1);
+      expect(result.skipped).toBe(0);
+      expect(mockPrismaService.contact.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'existing-contact' },
+          data: expect.objectContaining({
+            metadata: expect.objectContaining({
+              importedFrom: 'calendar',
+              meetingCount: 1,
+            }),
+          }),
+        }),
+      );
     });
 
     it('should import only selected emails when provided', async () => {
@@ -377,7 +444,7 @@ describe('CalendarContactImporterService', () => {
             subject: 'Meeting',
             startTime: new Date('2024-11-01T10:00:00Z'),
             endTime: new Date('2024-11-01T11:00:00Z'),
-            attendees: [{ email: 'john@company.com', displayName: 'John Michael Doe' }],
+            attendees: [{ email: 'john@company.com', displayName: 'John Michael Doe', responseStatus: 'accepted' }],
           },
         ],
         nextPageToken: undefined,
@@ -399,7 +466,7 @@ describe('CalendarContactImporterService', () => {
             subject: 'Meeting',
             startTime: new Date('2024-11-01T10:00:00Z'),
             endTime: new Date('2024-11-01T11:00:00Z'),
-            attendees: [{ email: 'john.doe@company.com' }],
+            attendees: [{ email: 'john.doe@company.com', responseStatus: 'accepted' }],
           },
         ],
         nextPageToken: undefined,

@@ -49,6 +49,14 @@ export class ImportCalendarContactsDto {
   skipDuplicates?: boolean;
 
   @ApiPropertyOptional({
+    description: 'Update existing contacts with new data from calendar',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  updateExisting?: boolean;
+
+  @ApiPropertyOptional({
     description: 'List of specific attendee emails to import (if empty, imports all)',
     type: [String],
   })
@@ -176,6 +184,9 @@ export class ImportCalendarContactsResponseDto {
 
   @ApiProperty({ description: 'Number of contacts imported' })
   imported: number;
+
+  @ApiProperty({ description: 'Number of contacts updated' })
+  updated: number;
 
   @ApiProperty({ description: 'Number of contacts skipped (duplicates)' })
   skipped: number;

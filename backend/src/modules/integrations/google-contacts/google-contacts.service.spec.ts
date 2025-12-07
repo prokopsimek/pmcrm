@@ -3,12 +3,12 @@
  * Test-Driven Development (RED phase)
  * Coverage target: 95%+
  */
-import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { GoogleContactsService } from './google-contacts.service';
+import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../shared/database/prisma.service';
-import { OAuthService } from '../shared/oauth.service';
 import { DeduplicationService } from '../shared/deduplication.service';
+import { OAuthService } from '../shared/oauth.service';
+import { GoogleContactsService } from './google-contacts.service';
 
 describe('GoogleContactsService (TDD - Unit)', () => {
   let service: GoogleContactsService;
@@ -707,12 +707,24 @@ describe('GoogleContactsService (TDD - Unit)', () => {
         id: mockIntegrationId,
       });
 
-      mockPrismaService.contact.upsert.mockResolvedValue({});
+      mockPrismaService.contact.update.mockResolvedValue({
+        id: 'existing-1',
+        email: 'john@example.com',
+      });
+
+      mockPrismaService.integrationLink.upsert.mockResolvedValue({});
 
       const result = await service.importContacts(mockUserId, updateDto);
 
       expect(result.updated).toBe(1);
-      expect(mockPrismaService.contact.upsert).toHaveBeenCalled();
+      expect(mockPrismaService.contact.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'existing-1' },
+          data: expect.objectContaining({
+            source: 'GOOGLE_CONTACTS',
+          }),
+        }),
+      );
     });
 
     it('should create integration links for imported contacts', async () => {

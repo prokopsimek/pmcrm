@@ -41,24 +41,34 @@ export interface UpdateGmailConfigRequest {
 
 export interface GmailSyncRequest {
   fullSync?: boolean;
-  contactId?: string;
+  historyDays?: number;
 }
 
-export interface GmailSyncResult {
-  success: boolean;
-  provider: 'gmail';
-  emailsProcessed: number;
-  emailsStored: number;
-  contactsMatched: number;
-  errors: Array<{
+export type GmailSyncJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+
+export interface GmailSyncJobResponse {
+  jobId: string;
+  status: GmailSyncJobStatus;
+  message: string;
+}
+
+export interface GmailSyncJobStatusResponse {
+  jobId: string;
+  status: GmailSyncJobStatus;
+  totalCount: number;
+  processedCount: number;
+  importedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  progress: number;
+  errors?: Array<{
     emailId?: string;
-    contactId?: string;
     error: string;
-    timestamp: string;
   }>;
-  duration?: number;
-  syncedAt: string;
-  newHistoryId?: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdAt: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface GmailOAuthInitiateResponse {

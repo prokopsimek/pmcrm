@@ -1,33 +1,33 @@
 import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import {
-    BadRequestException,
-    Inject,
-    Injectable,
-    Logger,
-    NotFoundException,
-    UnauthorizedException,
-    forwardRef,
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import type { Queue } from 'bull';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { DeduplicationService } from '../shared/deduplication.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-    DisconnectIntegrationResponseDto,
-    ImportContactsDto,
-    ImportContactsResponseDto,
-    IntegrationStatusResponseDto,
-    OAuthCallbackResponseDto,
-    OAuthInitiateResponseDto,
-    SyncContactsResponseDto,
+  DisconnectIntegrationResponseDto,
+  ImportContactsDto,
+  ImportContactsResponseDto,
+  IntegrationStatusResponseDto,
+  OAuthCallbackResponseDto,
+  OAuthInitiateResponseDto,
+  SyncContactsResponseDto,
 } from './dto/import-contacts.dto';
 import { ImportJobResponseDto } from './dto/import-job.dto';
 import {
-    DuplicateMatchDto,
-    ImportPreviewQueryDto,
-    ImportPreviewResponseDto,
-    ImportSummaryDto,
-    PreviewContactDto,
+  DuplicateMatchDto,
+  ImportPreviewQueryDto,
+  ImportPreviewResponseDto,
+  ImportSummaryDto,
+  PreviewContactDto,
 } from './dto/import-preview.dto';
 import type { GoogleContactsImportJobData } from './jobs/google-contacts-import.job';
 
@@ -62,7 +62,10 @@ export class GoogleContactsService {
     'https://www.googleapis.com/auth/contacts.readonly',
     'https://www.googleapis.com/auth/contacts.other.readonly',
   ];
-  private readonly stateStore = new Map<string, { userId: string; timestamp: number; orgSlug?: string }>();
+  private readonly stateStore = new Map<
+    string,
+    { userId: string; timestamp: number; orgSlug?: string }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -78,7 +81,9 @@ export class GoogleContactsService {
    * @param orgSlug - Optional organization slug for redirect after callback
    */
   async initiateOAuthFlow(userId: string, orgSlug?: string): Promise<OAuthInitiateResponseDto> {
-    this.logger.log(`Initiating OAuth flow for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
+    this.logger.log(
+      `Initiating OAuth flow for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`,
+    );
 
     // Check if OAuth is properly configured
     if (!this.oauthService.isConfigured('google')) {
@@ -135,7 +140,9 @@ export class GoogleContactsService {
     }
 
     const { userId, orgSlug } = stateData;
-    this.logger.log(`Handling OAuth callback for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`);
+    this.logger.log(
+      `Handling OAuth callback for user ${userId}${orgSlug ? ` (org: ${orgSlug})` : ''}`,
+    );
 
     try {
       // Exchange code for tokens
@@ -335,7 +342,7 @@ export class GoogleContactsService {
 
   /**
    * Import contacts from Google
-   * Uses atomic UPSERT transaction - if any contact fails, entire import fails with clear error
+   * Respects skipDuplicates and updateExisting flags for proper duplicate handling
    */
   async importContacts(userId: string, dto: ImportContactsDto): Promise<ImportContactsResponseDto> {
     this.logger.log(`Importing contacts for user ${userId}`);
@@ -353,90 +360,73 @@ export class GoogleContactsService {
       contactsToImport = allContacts.filter((contact) => selectedIds.includes(contact.externalId));
     }
 
+    // Get existing contacts for deduplication
+    const existingContacts = await this.prisma.contact.findMany({
+      where: { userId, deletedAt: null },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        company: true,
+      },
+    });
+
+    // Find duplicates using deduplication service
+    const duplicates = await this.deduplicationService.findDuplicates(
+      contactsToImport as any[],
+      existingContacts as any[],
+    );
+
+    const duplicateMap = new Map(
+      duplicates.map((dup) => [
+        (dup.importedContact as any).externalId,
+        dup.existingContact as any,
+      ]),
+    );
+
     let imported = 0;
+    let skipped = 0;
+    let updated = 0;
+    const errors: { contactId: string; error: string }[] = [];
     const importedContactIds: string[] = [];
 
     // Use transaction for atomic import - any error fails the entire transaction
     await this.prisma.$transaction(async (tx) => {
       for (const contact of contactsToImport) {
-        // Apply tag mapping
-        let tags = contact.tags;
-        if (dto.tagMapping) {
-          tags = tags.map((tag) => dto.tagMapping![tag] || tag);
-        }
+        try {
+          const existingContact = duplicateMap.get(contact.externalId);
 
-        // UPSERT based on whether contact has email
-        if (contact.email) {
-          // Use compound unique key userId_email for UPSERT
-          const upsertedContact = await tx.contact.upsert({
-            where: {
-              userId_email: {
-                userId,
-                email: contact.email,
-              },
-            },
-            update: {
-              firstName: contact.firstName,
-              lastName: contact.lastName,
-              phone: contact.phone,
-              company: contact.company,
-              position: contact.position,
-              tags,
-              metadata: contact.metadata,
-              source: 'GOOGLE_CONTACTS',
-              updatedAt: new Date(),
-            },
-            create: {
-              userId,
-              firstName: contact.firstName,
-              lastName: contact.lastName || '',
-              email: contact.email,
-              phone: contact.phone,
-              company: contact.company,
-              position: contact.position,
-              tags,
-              metadata: contact.metadata,
-              source: 'GOOGLE_CONTACTS',
-            },
-          });
+          // Skip duplicates if requested and not updating
+          if (existingContact && dto.skipDuplicates && !dto.updateExisting) {
+            skipped++;
+            continue;
+          }
 
-          importedContactIds.push(upsertedContact.id);
+          // Apply tag mapping
+          let tags = contact.tags;
+          if (dto.tagMapping) {
+            tags = tags.map((tag) => dto.tagMapping![tag] || tag);
+          }
 
-          // Create or update integration link
-          await tx.integrationLink.upsert({
-            where: {
-              integrationId_externalId: {
-                integrationId: integration.id,
-                externalId: contact.externalId,
-              },
-            },
-            update: {
-              contactId: upsertedContact.id,
-              metadata: contact.metadata,
-            },
-            create: {
-              integrationId: integration.id,
-              contactId: upsertedContact.id,
-              externalId: contact.externalId,
-              metadata: contact.metadata,
-            },
-          });
-        } else {
-          // Contact without email - check if integration link already exists
-          const existingLink = await tx.integrationLink.findUnique({
-            where: {
-              integrationId_externalId: {
-                integrationId: integration.id,
-                externalId: contact.externalId,
-              },
-            },
-            include: { contact: true },
-          });
+          // Exclude labels if specified
+          if (dto.excludeLabels) {
+            const excludeLabels = dto.excludeLabels;
+            tags = tags.filter((tag) => !excludeLabels.includes(tag));
+          }
 
-          if (existingLink) {
+          // Preserve original tags if requested
+          if (dto.preserveOriginalTags && dto.tagMapping) {
+            const tagMapping = dto.tagMapping;
+            const originalTags = contact.tags.filter((tag) => !tagMapping[tag]);
+            tags = [...new Set([...tags, ...originalTags])];
+          }
+
+          if (existingContact && dto.updateExisting) {
             // Update existing contact
             await tx.contact.update({
-              where: { id: existingLink.contactId },
+              where: { id: existingContact.id },
               data: {
                 firstName: contact.firstName,
                 lastName: contact.lastName,
@@ -449,14 +439,37 @@ export class GoogleContactsService {
                 updatedAt: new Date(),
               },
             });
-            importedContactIds.push(existingLink.contactId);
-          } else {
+            importedContactIds.push(existingContact.id);
+
+            // Update or create integration link
+            await tx.integrationLink.upsert({
+              where: {
+                integrationId_externalId: {
+                  integrationId: integration.id,
+                  externalId: contact.externalId,
+                },
+              },
+              update: {
+                contactId: existingContact.id,
+                metadata: contact.metadata,
+              },
+              create: {
+                integrationId: integration.id,
+                contactId: existingContact.id,
+                externalId: contact.externalId,
+                metadata: contact.metadata,
+              },
+            });
+
+            updated++;
+          } else if (!existingContact) {
             // Create new contact
             const createdContact = await tx.contact.create({
               data: {
                 userId,
                 firstName: contact.firstName,
                 lastName: contact.lastName || '',
+                email: contact.email,
                 phone: contact.phone,
                 company: contact.company,
                 position: contact.position,
@@ -468,6 +481,7 @@ export class GoogleContactsService {
 
             importedContactIds.push(createdContact.id);
 
+            // Create integration link
             await tx.integrationLink.create({
               data: {
                 integrationId: integration.id,
@@ -476,9 +490,19 @@ export class GoogleContactsService {
                 metadata: contact.metadata,
               },
             });
+
+            imported++;
+          }
+        } catch (error) {
+          errors.push({
+            contactId: contact.externalId,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          // If all contacts fail, throw to fail the transaction
+          if (errors.length === contactsToImport.length) {
+            throw error;
           }
         }
-        imported++;
       }
     });
 
@@ -497,12 +521,12 @@ export class GoogleContactsService {
     const duration = Date.now() - startTime;
 
     return {
-      success: true,
+      success: errors.length === 0,
       imported,
-      skipped: 0,
-      updated: 0,
-      failed: 0,
-      errors: [],
+      skipped,
+      updated,
+      failed: errors.length,
+      errors,
       duration,
       timestamp: new Date(),
     };

@@ -5,13 +5,13 @@ import { PrismaService } from '../../../../shared/database/prisma.service';
 import { OAuthService } from '../../shared/oauth.service';
 import { CalendarEventDto } from '../dto';
 import {
-  CalendarContactsPreviewQueryDto,
-  CalendarContactsPreviewResponseDto,
-  CalendarDuplicateMatchDto,
-  CalendarImportSummaryDto,
-  ImportCalendarContactsDto,
-  ImportCalendarContactsResponseDto,
-  PreviewAttendeeDto,
+    CalendarContactsPreviewQueryDto,
+    CalendarContactsPreviewResponseDto,
+    CalendarDuplicateMatchDto,
+    CalendarImportSummaryDto,
+    ImportCalendarContactsDto,
+    ImportCalendarContactsResponseDto,
+    PreviewAttendeeDto,
 } from '../dto/calendar-import.dto';
 import { AttendeeMatcherService } from './attendee-matcher.service';
 import { GoogleCalendarClientService } from './google-calendar-client.service';
@@ -143,6 +143,7 @@ export class CalendarContactImporterService {
   /**
    * Import contacts from calendar events
    * Only imports attendees who accepted or responded "maybe" from past events
+   * Respects skipDuplicates and updateExisting flags for proper duplicate handling
    * @param userId - User ID
    * @param dto - Import parameters
    * @returns Import result
@@ -155,9 +156,10 @@ export class CalendarContactImporterService {
     const startDate = new Date(dto.startDate);
     const endDate = dto.endDate ? new Date(dto.endDate) : new Date();
     const skipDuplicates = dto.skipDuplicates ?? true;
+    const updateExisting = dto.updateExisting ?? false;
 
     this.logger.log(
-      `[importContacts] Starting for user ${userId}, period: ${startDate.toISOString()} to ${endDate.toISOString()}, skipDuplicates: ${skipDuplicates}`,
+      `[importContacts] Starting for user ${userId}, period: ${startDate.toISOString()} to ${endDate.toISOString()}, skipDuplicates: ${skipDuplicates}, updateExisting: ${updateExisting}`,
     );
 
     // Fetch all calendar events in the date range (only past events)
@@ -177,7 +179,7 @@ export class CalendarContactImporterService {
       );
     }
 
-    // Get existing contacts for duplicate check
+    // Get existing contacts for duplicate check (with full details for updates)
     const existingContacts = await this.prisma.contact.findMany({
       where: {
         userId,
@@ -190,12 +192,21 @@ export class CalendarContactImporterService {
       select: {
         id: true,
         email: true,
+        firstName: true,
+        lastName: true,
+        company: true,
+        lastContact: true,
+        metadata: true,
       },
     });
 
-    const existingEmails = new Set(existingContacts.map((c) => c.email!.toLowerCase()));
+    // Build map of existing contacts by email (lowercase)
+    const existingContactsMap = new Map(
+      existingContacts.map((c) => [c.email!.toLowerCase(), c]),
+    );
 
     let imported = 0;
+    let updated = 0;
     let skipped = 0;
     let failed = 0;
     const errors: string[] = [];
@@ -207,9 +218,10 @@ export class CalendarContactImporterService {
     // Import each attendee
     for (const attendee of attendeesToImport) {
       const emailLower = attendee.email.toLowerCase();
+      const existingContact = existingContactsMap.get(emailLower);
 
-      // Skip duplicates if requested
-      if (skipDuplicates && existingEmails.has(emailLower)) {
+      // Skip duplicates if requested and not updating
+      if (existingContact && skipDuplicates && !updateExisting) {
         skipped++;
         continue;
       }
@@ -220,44 +232,99 @@ export class CalendarContactImporterService {
           attendee.displayName || attendee.email,
         );
 
-        // Create contact
-        const contact = await this.prisma.contact.create({
-          data: {
-            userId,
-            firstName,
-            lastName: lastName || '',
-            email: attendee.email.toLowerCase(),
-            company: this.extractCompanyFromEmail(attendee.email),
-            source: 'GOOGLE_CALENDAR',
-            lastContact: attendee.lastMeetingDate,
-            metadata: {
-              importedFrom: 'calendar',
-              meetingCount: attendee.meetingCount,
-              firstMeetingDate: attendee.firstMeetingDate.toISOString(),
-              lastMeetingDate: attendee.lastMeetingDate.toISOString(),
-            },
-          },
-        });
+        if (existingContact && updateExisting) {
+          // Update existing contact with new calendar data
+          const updatedMetadata = {
+            ...(existingContact.metadata as object || {}),
+            importedFrom: 'calendar',
+            meetingCount: attendee.meetingCount,
+            firstMeetingDate: attendee.firstMeetingDate.toISOString(),
+            lastMeetingDate: attendee.lastMeetingDate.toISOString(),
+          };
 
-        importedContactIds.push(contact.id);
-
-        // Create integration link if we have integration
-        if (integration) {
-          await this.prisma.integrationLink.create({
+          await this.prisma.contact.update({
+            where: { id: existingContact.id },
             data: {
-              integrationId: integration.id,
-              contactId: contact.id,
-              externalId: `calendar-attendee-${emailLower}`,
+              // Update lastContact if the new meeting is more recent
+              lastContact: existingContact.lastContact
+                ? new Date(Math.max(existingContact.lastContact.getTime(), attendee.lastMeetingDate.getTime()))
+                : attendee.lastMeetingDate,
+              metadata: updatedMetadata,
+              updatedAt: new Date(),
+            },
+          });
+
+          importedContactIds.push(existingContact.id);
+
+          // Update or create integration link if we have integration
+          if (integration) {
+            await this.prisma.integrationLink.upsert({
+              where: {
+                integrationId_externalId: {
+                  integrationId: integration.id,
+                  externalId: `calendar-attendee-${emailLower}`,
+                },
+              },
+              update: {
+                contactId: existingContact.id,
+                metadata: {
+                  source: 'calendar_import',
+                  meetingCount: attendee.meetingCount,
+                },
+              },
+              create: {
+                integrationId: integration.id,
+                contactId: existingContact.id,
+                externalId: `calendar-attendee-${emailLower}`,
+                metadata: {
+                  source: 'calendar_import',
+                  meetingCount: attendee.meetingCount,
+                },
+              },
+            });
+          }
+
+          updated++;
+        } else if (!existingContact) {
+          // Create new contact
+          const contact = await this.prisma.contact.create({
+            data: {
+              userId,
+              firstName,
+              lastName: lastName || '',
+              email: attendee.email.toLowerCase(),
+              company: this.extractCompanyFromEmail(attendee.email),
+              source: 'GOOGLE_CALENDAR',
+              lastContact: attendee.lastMeetingDate,
               metadata: {
-                source: 'calendar_import',
+                importedFrom: 'calendar',
                 meetingCount: attendee.meetingCount,
+                firstMeetingDate: attendee.firstMeetingDate.toISOString(),
+                lastMeetingDate: attendee.lastMeetingDate.toISOString(),
               },
             },
           });
-        }
 
-        imported++;
-        existingEmails.add(emailLower); // Prevent duplicate creation in same batch
+          importedContactIds.push(contact.id);
+
+          // Create integration link if we have integration
+          if (integration) {
+            await this.prisma.integrationLink.create({
+              data: {
+                integrationId: integration.id,
+                contactId: contact.id,
+                externalId: `calendar-attendee-${emailLower}`,
+                metadata: {
+                  source: 'calendar_import',
+                  meetingCount: attendee.meetingCount,
+                },
+              },
+            });
+          }
+
+          imported++;
+          existingContactsMap.set(emailLower, { ...contact, metadata: contact.metadata }); // Prevent duplicate creation in same batch
+        }
       } catch (error) {
         failed++;
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -297,12 +364,13 @@ export class CalendarContactImporterService {
     const duration = Date.now() - startTime;
 
     this.logger.log(
-      `[importContacts] Calendar contact import completed: ${imported} imported, ${skipped} skipped, ${failed} failed`,
+      `[importContacts] Calendar contact import completed: ${imported} imported, ${updated} updated, ${skipped} skipped, ${failed} failed`,
     );
 
     return {
       success: failed === 0,
       imported,
+      updated,
       skipped,
       failed,
       errors: errors.length > 0 ? errors : undefined,
