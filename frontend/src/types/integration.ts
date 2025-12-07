@@ -204,3 +204,14 @@ export interface SyncContactsResponse {
   deleted: number;
   syncToken?: string;
 }
+
+// Calendar Sync Types
+
+export interface CalendarSyncResult {
+  synced: number;
+  added?: number;
+  updated?: number;
+  deleted?: number;
+  skipped?: boolean;
+  syncedAt: string;
+}

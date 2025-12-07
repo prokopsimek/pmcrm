@@ -8,6 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
     Dialog,
     DialogContent,
     DialogDescription,
@@ -34,6 +44,8 @@ import {
     useInitiateGoogleAuth,
     useInitiateGoogleCalendarAuth,
     useSyncGmailEmails,
+    useSyncGoogleCalendar,
+    useSyncGoogleContacts,
     useUpdateGmailConfig,
     useUpdateGoogleCalendarConfig,
 } from '@/hooks';
@@ -119,6 +131,149 @@ export default function IntegrationsPage() {
   const { data: availableCalendars, isLoading: isLoadingCalendars } = useGoogleCalendarAvailableCalendars();
   const { data: calendarConfig } = useGoogleCalendarConfig();
   const updateCalendarConfig = useUpdateGoogleCalendarConfig();
+  const syncGoogleCalendar = useSyncGoogleCalendar();
+
+  // Google Contacts sync
+  const syncGoogleContacts = useSyncGoogleContacts();
+
+  // Rate limiting state for manual sync (production only)
+  const [syncCooldowns, setSyncCooldowns] = useState<Record<string, number>>({});
+  const [confirmSyncDialog, setConfirmSyncDialog] = useState<{
+    open: boolean;
+    integration: 'google-contacts' | 'google-calendar' | null;
+  }>({ open: false, integration: null });
+
+  // Check if we're in production environment
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Load cooldowns from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isProduction) {
+      const stored = localStorage.getItem('sync_cooldowns');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          setSyncCooldowns(parsed);
+        } catch {
+          // Invalid data, reset
+          localStorage.removeItem('sync_cooldowns');
+        }
+      }
+    }
+  }, [isProduction]);
+
+  // Save cooldowns to localStorage when they change
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isProduction && Object.keys(syncCooldowns).length > 0) {
+      localStorage.setItem('sync_cooldowns', JSON.stringify(syncCooldowns));
+    }
+  }, [syncCooldowns, isProduction]);
+
+  // Check if sync is within the hard cooldown (1 hour after confirmed sync)
+  const isSyncDisabled = (integration: string): boolean => {
+    if (!isProduction) return false;
+    const cooldownEnd = syncCooldowns[`${integration}_hard`];
+    if (!cooldownEnd) return false;
+    return Date.now() < cooldownEnd;
+  };
+
+  // Check if user can sync without confirmation (more than 1 hour since last sync)
+  const canSyncWithoutConfirm = (integration: string): boolean => {
+    if (!isProduction) return true;
+    const lastSync = syncCooldowns[`${integration}_soft`];
+    if (!lastSync) return true;
+    const oneHour = 60 * 60 * 1000;
+    return Date.now() - lastSync > oneHour;
+  };
+
+  // Get remaining cooldown time in minutes
+  const getRemainingCooldown = (integration: string): number => {
+    const cooldownEnd = syncCooldowns[`${integration}_hard`];
+    if (!cooldownEnd) return 0;
+    const remaining = cooldownEnd - Date.now();
+    return Math.max(0, Math.ceil(remaining / (60 * 1000)));
+  };
+
+  // Execute the actual sync
+  const executeSync = (integration: 'google-contacts' | 'google-calendar') => {
+    const oneHour = 60 * 60 * 1000;
+    const now = Date.now();
+
+    if (integration === 'google-contacts') {
+      syncGoogleContacts.mutate(undefined, {
+        onSuccess: (result) => {
+          toast.success('Google Contacts synced', {
+            description: `Added: ${result.added}, Updated: ${result.updated}, Deleted: ${result.deleted}`,
+          });
+          // Set soft cooldown (for confirmation dialog)
+          setSyncCooldowns((prev) => ({
+            ...prev,
+            [`${integration}_soft`]: now,
+          }));
+        },
+        onError: () => {
+          toast.error('Google Contacts sync failed', {
+            description: 'Please try again later.',
+          });
+        },
+      });
+    } else if (integration === 'google-calendar') {
+      syncGoogleCalendar.mutate(undefined, {
+        onSuccess: (result) => {
+          toast.success('Google Calendar synced', {
+            description: `Synced ${result.synced} events`,
+          });
+          // Set soft cooldown (for confirmation dialog)
+          setSyncCooldowns((prev) => ({
+            ...prev,
+            [`${integration}_soft`]: now,
+          }));
+        },
+        onError: () => {
+          toast.error('Google Calendar sync failed', {
+            description: 'Please try again later.',
+          });
+        },
+      });
+    }
+  };
+
+  // Handle sync button click
+  const handleSyncClick = (integration: 'google-contacts' | 'google-calendar') => {
+    if (isSyncDisabled(integration)) {
+      const remaining = getRemainingCooldown(integration);
+      toast.info(`Sync unavailable`, {
+        description: `Please wait ${remaining} more minute${remaining !== 1 ? 's' : ''} before syncing again.`,
+      });
+      return;
+    }
+
+    if (canSyncWithoutConfirm(integration)) {
+      executeSync(integration);
+    } else {
+      // Show confirmation dialog
+      setConfirmSyncDialog({ open: true, integration });
+    }
+  };
+
+  // Handle confirmed sync (sets hard cooldown)
+  const handleConfirmSync = () => {
+    const integration = confirmSyncDialog.integration;
+    if (!integration) return;
+
+    const oneHour = 60 * 60 * 1000;
+    const now = Date.now();
+
+    // Set hard cooldown (button disabled for 1 hour)
+    setSyncCooldowns((prev) => ({
+      ...prev,
+      [`${integration}_hard`]: now + oneHour,
+      [`${integration}_soft`]: now,
+    }));
+
+    executeSync(integration);
+    setConfirmSyncDialog({ open: false, integration: null });
+  };
 
   // Pre-select primary calendar when modal opens after new connection
   useEffect(() => {
@@ -239,8 +394,8 @@ export default function IntegrationsPage() {
   const handleSyncGmail = () => {
     syncGmailEmails.mutate(undefined, {
       onSuccess: (result) => {
-        toast.success('Gmail sync completed', {
-          description: `Processed ${result.emailsProcessed} emails, stored ${result.emailsStored} new messages.`,
+        toast.success('Gmail sync started', {
+          description: result.message,
         });
       },
       onError: () => {
@@ -349,6 +504,26 @@ export default function IntegrationsPage() {
                   onConnect={handleConnectGoogle}
                   onDisconnect={() => handleDisconnectClick('google')}
                   onManage={handleManageGoogle}
+                  customActions={
+                    googleStatus?.isConnected && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSyncClick('google-contacts')}
+                          disabled={isSyncDisabled('google-contacts') || syncGoogleContacts.isPending}
+                          title={isSyncDisabled('google-contacts') ? `Wait ${getRemainingCooldown('google-contacts')} min` : undefined}
+                        >
+                          {syncGoogleContacts.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                          <span className="ml-1 sr-only md:not-sr-only">Sync Now</span>
+                        </Button>
+                      </div>
+                    )
+                  }
                 />
 
                 {/* Microsoft Graph */}
@@ -431,6 +606,26 @@ export default function IntegrationsPage() {
                   onConnect={handleConnectGoogleCalendar}
                   onDisconnect={() => handleDisconnectClick('googleCalendar')}
                   onManage={handleManageGoogleCalendar}
+                  customActions={
+                    calendarStatus?.isConnected && calendarStatus.isConfigured && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleSyncClick('google-calendar')}
+                          disabled={isSyncDisabled('google-calendar') || syncGoogleCalendar.isPending}
+                          title={isSyncDisabled('google-calendar') ? `Wait ${getRemainingCooldown('google-calendar')} min` : undefined}
+                        >
+                          {syncGoogleCalendar.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                          <span className="ml-1 sr-only md:not-sr-only">Sync Now</span>
+                        </Button>
+                      </div>
+                    )
+                  }
                 />
               </div>
             </CardContent>
@@ -886,6 +1081,28 @@ export default function IntegrationsPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Sync Confirmation Dialog (production only) */}
+        <AlertDialog
+          open={confirmSyncDialog.open}
+          onOpenChange={(open) => setConfirmSyncDialog({ ...confirmSyncDialog, open })}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Sync Again?</AlertDialogTitle>
+              <AlertDialogDescription>
+                You synced less than an hour ago. Are you sure you want to sync again?
+                After confirming, you won&apos;t be able to sync for 1 hour.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleConfirmSync}>
+                Sync Now
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </AppLayout>
     </ProtectedRoute>
   );

@@ -4,8 +4,8 @@ import type {
     GmailDisconnectResponse,
     GmailOAuthInitiateResponse,
     GmailStatusResponse,
+    GmailSyncJobResponse,
     GmailSyncRequest,
-    GmailSyncResult,
     ImportContactsRequest,
     ImportContactsResponse,
     ImportPreviewResponse,
@@ -232,10 +232,11 @@ export const integrationsService = {
     },
 
     /**
-     * Trigger Gmail email sync
+     * Trigger Gmail email sync (background job)
+     * Returns immediately with job ID for status tracking
      */
-    async syncEmails(request?: GmailSyncRequest): Promise<GmailSyncResult> {
-      const response = await apiClient.post<GmailSyncResult>(
+    async syncEmails(request?: GmailSyncRequest): Promise<GmailSyncJobResponse> {
+      const response = await apiClient.post<GmailSyncJobResponse>(
         '/integrations/gmail/sync',
         request || {}
       );
@@ -475,6 +476,28 @@ export const integrationsService = {
         syncPeriodDays: number;
         lastSyncAt?: string;
       }>('/calendar/config', config);
+      return response.data;
+    },
+
+    /**
+     * Trigger manual calendar sync
+     */
+    async syncCalendar(): Promise<{
+      synced: number;
+      added?: number;
+      updated?: number;
+      deleted?: number;
+      skipped?: boolean;
+      syncedAt: string;
+    }> {
+      const response = await apiClient.post<{
+        synced: number;
+        added?: number;
+        updated?: number;
+        deleted?: number;
+        skipped?: boolean;
+        syncedAt: string;
+      }>('/calendar/sync');
       return response.data;
     },
 

@@ -293,6 +293,22 @@ export function useUpdateGoogleCalendarConfig() {
   });
 }
 
+export function useSyncGoogleCalendar() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => integrationsService.googleCalendar.syncCalendar(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.googleCalendar.status(),
+      });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.integrations.googleCalendar.config(),
+      });
+    },
+  });
+}
+
 // Microsoft specific hooks (placeholder - not yet implemented on backend)
 
 export function useMicrosoftIntegrationStatus() {
