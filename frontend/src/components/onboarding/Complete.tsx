@@ -15,7 +15,7 @@ export function Complete({ onNext }: CompleteProps) {
   const handleGetStarted = () => {
     setRedirecting(true);
     setTimeout(() => {
-      router.push('/dashboard');
+      router.push('/organizations');
     }, 500);
   };
 

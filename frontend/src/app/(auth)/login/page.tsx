@@ -1,25 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { toast } from 'sonner';
-import { Loader2, Users, Mail, Lock } from 'lucide-react';
-import { signIn } from '@/lib/auth';
-import { loginSchema, type LoginInput } from '@/lib/validations';
 import { Button } from '@/components/ui/button';
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { signIn } from '@/lib/auth';
+import { loginSchema, type LoginInput } from '@/lib/validations';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Loader2, Lock, Mail, Users } from 'lucide-react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { toast } from 'sonner';
 
 /**
  * Login Page - Modern split layout with social login
@@ -54,7 +54,7 @@ export default function LoginPage() {
         toast.success('Welcome back!', {
           description: 'Successfully signed in',
         });
-        router.push('/dashboard');
+        router.push('/organizations');
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -71,7 +71,7 @@ export default function LoginPage() {
     try {
       await signIn.social({
         provider,
-        callbackURL: '/dashboard',
+        callbackURL: '/organizations',
       });
     } catch (err) {
       console.error(`${provider} login error:`, err);

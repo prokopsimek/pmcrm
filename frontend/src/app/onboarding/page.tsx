@@ -1,15 +1,15 @@
 'use client';
 
-import { Suspense, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { WorkspaceSetup } from '@/components/onboarding/WorkspaceSetup';
-import { ProfileSetup } from '@/components/onboarding/ProfileSetup';
-import { IntegrationPrompt } from '@/components/onboarding/IntegrationPrompt';
-import { ImportContacts } from '@/components/onboarding/ImportContacts';
 import { Complete } from '@/components/onboarding/Complete';
+import { ImportContacts } from '@/components/onboarding/ImportContacts';
+import { IntegrationPrompt } from '@/components/onboarding/IntegrationPrompt';
+import { ProfileSetup } from '@/components/onboarding/ProfileSetup';
+import { WorkspaceSetup } from '@/components/onboarding/WorkspaceSetup';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { Check, Briefcase, User, Link2, Upload, Sparkles, Loader2 } from 'lucide-react';
+import { Briefcase, Check, Link2, Loader2, Sparkles, Upload, User } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
 
 const ONBOARDING_STEPS = [
   { id: 'workspace', title: 'Workspace', icon: Briefcase, component: WorkspaceSetup },
@@ -56,8 +56,8 @@ function OnboardingContent() {
     if (currentStep < ONBOARDING_STEPS.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Onboarding complete, redirect to dashboard
-      router.push('/dashboard');
+      // Onboarding complete, redirect to organizations (which handles org-scoped dashboard redirect)
+      router.push('/organizations');
     }
   };
 
@@ -71,7 +71,7 @@ function OnboardingContent() {
     if (currentStep < ONBOARDING_STEPS.length - 1) {
       setCurrentStep(currentStep + 1);
     } else {
-      router.push('/dashboard');
+      router.push('/organizations');
     }
   };
 
