@@ -3,27 +3,27 @@
 import { ProtectedRoute } from '@/components/auth/protected-route';
 import { IntegrationCard } from '@/components/integrations/IntegrationCard';
 import { AppLayout } from '@/components/layout';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -31,23 +31,23 @@ import { Separator } from '@/components/ui/separator';
 import { PageSkeleton } from '@/components/ui/skeletons';
 import { Switch } from '@/components/ui/switch';
 import {
-    useDisconnectGmailIntegration,
-    useDisconnectGoogleCalendar,
-    useDisconnectGoogleIntegration,
-    useGmailConfig,
-    useGmailIntegrationStatus,
-    useGoogleCalendarAvailableCalendars,
-    useGoogleCalendarConfig,
-    useGoogleCalendarStatus,
-    useGoogleIntegrationStatus,
-    useInitiateGmailAuth,
-    useInitiateGoogleAuth,
-    useInitiateGoogleCalendarAuth,
-    useSyncGmailEmails,
-    useSyncGoogleCalendar,
-    useSyncGoogleContacts,
-    useUpdateGmailConfig,
-    useUpdateGoogleCalendarConfig,
+  useDisconnectGmailIntegration,
+  useDisconnectGoogleCalendar,
+  useDisconnectGoogleIntegration,
+  useGmailConfig,
+  useGmailIntegrationStatus,
+  useGoogleCalendarAvailableCalendars,
+  useGoogleCalendarConfig,
+  useGoogleCalendarStatus,
+  useGoogleIntegrationStatus,
+  useInitiateGmailAuth,
+  useInitiateGoogleAuth,
+  useInitiateGoogleCalendarAuth,
+  useSyncGmailEmails,
+  useSyncGoogleCalendar,
+  useSyncGoogleContacts,
+  useUpdateGmailConfig,
+  useUpdateGoogleCalendarConfig,
 } from '@/hooks';
 import { formatDistanceToNow } from 'date-fns';
 import { Calendar, Link2, Loader2, Mail, MessageSquare, RefreshCw, Settings2, Shield, ShieldCheck } from 'lucide-react';
