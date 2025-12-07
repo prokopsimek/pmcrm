@@ -2,11 +2,11 @@
  * E2E tests for US-001: Registration and workspace creation
  * Tests complete user flows from registration to workspace setup
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
-import * as request from 'supertest';
 import { AppModule } from '@/app.module';
 import { PrismaService } from '@/shared/database/prisma.service';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import * as request from 'supertest';
 
 describe('Registration and Workspace Creation (E2E) - US-001', () => {
   let app: INestApplication;
@@ -137,7 +137,7 @@ describe('Registration and Workspace Creation (E2E) - US-001', () => {
         email: 'google-user@example.com',
         firstName: 'Google',
         lastName: 'User',
-        avatar: 'https://example.com/avatar.jpg',
+        image: 'https://example.com/image.jpg',
       };
 
       const response = await request(app.getHttpServer())

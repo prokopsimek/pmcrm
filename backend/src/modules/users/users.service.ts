@@ -3,17 +3,17 @@
  * Implements user registration and onboarding
  * Note: Organization/workspace management is handled by better-auth organization plugin
  */
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  BadRequestException,
-} from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@/shared/database/prisma.service';
-import { User, OnboardingState, Subscription } from '@prisma/client';
-import { RegisterUserDto, RegisterSSODto } from './dto';
+import {
+    BadRequestException,
+    ConflictException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { OnboardingState, Subscription, User } from '@prisma/client';
+import { RegisterSSODto, RegisterUserDto } from './dto';
 
 const ONBOARDING_STEPS = ['profile', 'integrations', 'import_contacts'] as const;
 const TRIAL_PERIOD_DAYS = 14;
@@ -110,7 +110,7 @@ export class UsersService {
           email: dto.email,
           firstName: dto.firstName,
           lastName: dto.lastName,
-          avatar: dto.avatar,
+          image: dto.image,
           role: 'USER',
           accounts: {
             create: {

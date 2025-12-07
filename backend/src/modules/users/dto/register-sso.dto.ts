@@ -3,7 +3,7 @@
  * US-001: Registration and workspace creation
  */
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, IsOptional, IsIn } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class RegisterSSODto {
   @ApiProperty({
@@ -48,11 +48,11 @@ export class RegisterSSODto {
   lastName?: string;
 
   @ApiProperty({
-    description: 'User avatar URL from SSO provider',
-    example: 'https://example.com/avatar.jpg',
+    description: 'User profile image URL from SSO provider',
+    example: 'https://example.com/image.jpg',
     required: false,
   })
   @IsOptional()
   @IsString()
-  avatar?: string;
+  image?: string;
 }

@@ -7,7 +7,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
-  avatar?: string;
+  image?: string;
   createdAt: string;
   updatedAt: string;
 }

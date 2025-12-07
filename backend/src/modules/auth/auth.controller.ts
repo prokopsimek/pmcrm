@@ -1,6 +1,6 @@
 import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { Session, AllowAnonymous } from '@thallesp/nestjs-better-auth';
+import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { AllowAnonymous, Session } from '@thallesp/nestjs-better-auth';
 import { AuthService } from './auth.service';
 
 interface SessionData {
@@ -65,7 +65,6 @@ export class AuthController {
         firstName: user.firstName,
         lastName: user.lastName,
         image: user.image,
-        avatar: user.avatar,
         role: user.role,
         isActive: user.isActive,
         createdAt: user.createdAt,

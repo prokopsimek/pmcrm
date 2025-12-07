@@ -12,7 +12,12 @@ export class TimelineQueryDto {
   @IsOptional()
   @IsArray()
   @IsEnum(TimelineEventType, { each: true })
-  @Transform(({ value }) => (typeof value === 'string' ? [value] : value))
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      return value.includes(',') ? value.split(',').map((v) => v.trim()) : [value];
+    }
+    return value;
+  })
   types?: TimelineEventType[];
 
   /**

@@ -6,12 +6,12 @@
  * Note: Organization/workspace management is handled by better-auth organization plugin.
  * See backend/src/modules/organizations for organization-related tests.
  */
-import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { UsersService } from './users.service';
 import { PrismaService } from '@/shared/database/prisma.service';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
+import { UsersService } from './users.service';
 
 describe('UsersService - US-001: Registration and Onboarding', () => {
   let service: UsersService;
@@ -181,7 +181,7 @@ describe('UsersService - US-001: Registration and Onboarding', () => {
         email: 'test@example.com',
         firstName: 'Test',
         lastName: 'User',
-        avatar: 'https://example.com/avatar.jpg',
+        image: 'https://example.com/image.jpg',
       };
 
       mockPrismaService.account.findFirst.mockResolvedValue(null);

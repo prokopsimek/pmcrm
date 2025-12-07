@@ -1,31 +1,32 @@
 'use client';
 
-import * as React from 'react';
-import Link from 'next/link';
-import { useRouter, useParams } from 'next/navigation';
-import {
-  Search,
-  Bell,
-  Menu,
-  LogOut,
-  User,
-  Settings,
-  Plus,
-} from 'lucide-react';
-import { useAuth } from '@/hooks';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuShortcut,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuShortcut,
-} from '@/components/ui/dropdown-menu';
+import { useAuth } from '@/hooks';
 import { cn } from '@/lib/utils';
+import {
+    Bell,
+    LogOut,
+    Menu,
+    Plus,
+    Search,
+    Settings,
+    User,
+} from 'lucide-react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import * as React from 'react';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -147,11 +148,13 @@ export function Header({ onMenuClick, sidebarCollapsed }: HeaderProps) {
           {/* User Menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                className="relative h-9 w-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                <span className="text-sm font-medium">{userInitials}</span>
+              <Button variant="ghost" className="relative h-9 w-9 rounded-full p-0">
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={user?.image || undefined} alt={user?.name || 'User avatar'} />
+                  <AvatarFallback className="bg-primary text-primary-foreground text-sm font-medium">
+                    {userInitials}
+                  </AvatarFallback>
+                </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/shared/database/prisma.service';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 /**
  * Authentication Service
@@ -25,7 +25,6 @@ export class AuthService {
         firstName: true,
         lastName: true,
         image: true,
-        avatar: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -54,7 +53,6 @@ export class AuthService {
         firstName: true,
         lastName: true,
         image: true,
-        avatar: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -88,7 +86,6 @@ export class AuthService {
         firstName: true,
         lastName: true,
         image: true,
-        avatar: true,
         role: true,
         isActive: true,
         createdAt: true,
