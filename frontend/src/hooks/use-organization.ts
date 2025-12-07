@@ -46,8 +46,10 @@ export interface Invitation {
 
 /**
  * Hook for managing organizations
+ * Waits for session to be ready before fetching organizations
  */
 export function useOrganizations() {
+  const { data: session, isPending: isSessionLoading } = authClient.useSession();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -68,13 +70,26 @@ export function useOrganizations() {
     }
   }, []);
 
+  // Wait for session to be ready before fetching organizations
   useEffect(() => {
-    fetchOrganizations();
-  }, [fetchOrganizations]);
+    // Don't fetch if session is still loading
+    if (isSessionLoading) {
+      return;
+    }
+
+    // Only fetch if user is authenticated
+    if (session?.user) {
+      fetchOrganizations();
+    } else {
+      // Not authenticated, stop loading
+      setIsLoading(false);
+    }
+  }, [isSessionLoading, session?.user, fetchOrganizations]);
 
   return {
     organizations,
-    isLoading,
+    // Include session loading state in overall loading
+    isLoading: isSessionLoading || isLoading,
     error,
     refetch: fetchOrganizations,
   };
