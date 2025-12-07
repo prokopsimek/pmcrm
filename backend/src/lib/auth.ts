@@ -2,6 +2,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
+import { createAuthMiddleware } from 'better-auth/api';
 import { organization } from 'better-auth/plugins';
 import { Pool } from 'pg';
 
@@ -132,8 +133,21 @@ export const auth = betterAuth({
     },
     // Cookie attributes for cross-origin authentication
     // Required when frontend and backend are on different domains
+    // ALL cookies must have SameSite=None for cross-origin to work
     cookies: {
       session_token: {
+        attributes: {
+          sameSite: 'none' as const,
+          secure: true,
+        },
+      },
+      session_data: {
+        attributes: {
+          sameSite: 'none' as const,
+          secure: true,
+        },
+      },
+      dont_remember: {
         attributes: {
           sameSite: 'none' as const,
           secure: true,
@@ -144,6 +158,29 @@ export const auth = betterAuth({
 
   // Trusted origins for CORS
   trustedOrigins: [process.env.FRONTEND_URL || 'http://localhost:3000'],
+
+  // Debug hooks for authentication flow
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path.includes('/sign-in')) {
+        console.log('[Auth] Sign-in attempt:', {
+          path: ctx.path,
+          method: ctx.method,
+          origin: ctx.headers?.get('origin'),
+        });
+      }
+      return undefined;
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path.includes('/sign-in')) {
+        console.log('[Auth] Sign-in response:', {
+          path: ctx.path,
+          newSession: ctx.context.newSession ? 'created' : 'none',
+        });
+      }
+      return undefined;
+    }),
+  },
 
   // Plugins
   plugins: [
