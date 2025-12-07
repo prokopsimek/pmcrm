@@ -60,7 +60,10 @@ export function proxy(request: NextRequest) {
   }
 
   // Check for session cookie (better-auth uses 'better-auth.session_token')
-  const hasSession = request.cookies.has('better-auth.session_token');
+  // In HTTPS/secure mode, cookies have '__Secure-' prefix
+  const hasSession =
+    request.cookies.has('better-auth.session_token') ||
+    request.cookies.has('__Secure-better-auth.session_token');
 
   // If no session, redirect to login
   if (!hasSession) {
