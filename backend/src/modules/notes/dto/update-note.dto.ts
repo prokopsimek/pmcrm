@@ -22,3 +22,5 @@ export class UpdateNoteDto {
   @IsOptional()
   isPinned?: boolean;
 }
+
+

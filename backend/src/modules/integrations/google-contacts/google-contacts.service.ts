@@ -1,33 +1,33 @@
 import { RelationshipScoreService } from '@/modules/contacts/services/relationship-score.service';
 import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-  UnauthorizedException,
-  forwardRef,
+    BadRequestException,
+    Inject,
+    Injectable,
+    Logger,
+    NotFoundException,
+    UnauthorizedException,
+    forwardRef,
 } from '@nestjs/common';
 import type { Queue } from 'bull';
 import { PrismaService } from '../../../shared/database/prisma.service';
 import { DeduplicationService } from '../shared/deduplication.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-  DisconnectIntegrationResponseDto,
-  ImportContactsDto,
-  ImportContactsResponseDto,
-  IntegrationStatusResponseDto,
-  OAuthCallbackResponseDto,
-  OAuthInitiateResponseDto,
-  SyncContactsResponseDto,
+    DisconnectIntegrationResponseDto,
+    ImportContactsDto,
+    ImportContactsResponseDto,
+    IntegrationStatusResponseDto,
+    OAuthCallbackResponseDto,
+    OAuthInitiateResponseDto,
+    SyncContactsResponseDto,
 } from './dto/import-contacts.dto';
 import { ImportJobResponseDto } from './dto/import-job.dto';
 import {
-  DuplicateMatchDto,
-  ImportPreviewQueryDto,
-  ImportPreviewResponseDto,
-  ImportSummaryDto,
-  PreviewContactDto,
+    DuplicateMatchDto,
+    ImportPreviewQueryDto,
+    ImportPreviewResponseDto,
+    ImportSummaryDto,
+    PreviewContactDto,
 } from './dto/import-preview.dto';
 import type { GoogleContactsImportJobData } from './jobs/google-contacts-import.job';
 
@@ -229,23 +229,38 @@ export class GoogleContactsService {
    * Use this for import/preview operations that need complete contact list
    */
   async fetchAllContacts(userId: string): Promise<FetchContactsResult> {
-    this.logger.log(`Fetching all contacts for user ${userId}`);
+    this.logger.log(`[fetchAllContacts] Starting fetch for user ${userId}`);
+    const startTime = Date.now();
 
     const allContacts: PreviewContactDto[] = [];
     let pageToken: string | undefined = undefined;
     let totalCount = 0;
+    let pageNumber = 0;
 
     do {
+      pageNumber++;
+      const pageStartTime = Date.now();
+
       const result = await this.fetchContacts(userId, { pageToken });
       allContacts.push(...result.contacts);
       pageToken = result.nextPageToken;
+
       // Use totalCount from first response (Google provides total in first page)
       if (totalCount === 0) {
         totalCount = result.totalCount;
       }
+
+      const pageTime = Date.now() - pageStartTime;
+      this.logger.log(
+        `[fetchAllContacts] Page ${pageNumber}: fetched ${result.contacts.length} contacts ` +
+          `(${allContacts.length}/${totalCount} total), hasNext: ${!!pageToken}, took ${pageTime}ms`,
+      );
     } while (pageToken);
 
-    this.logger.log(`Fetched ${allContacts.length} contacts total`);
+    const totalTime = Date.now() - startTime;
+    this.logger.log(
+      `[fetchAllContacts] Completed: ${allContacts.length} contacts fetched in ${pageNumber} pages, took ${totalTime}ms`,
+    );
 
     return {
       contacts: allContacts,
@@ -345,7 +360,11 @@ export class GoogleContactsService {
    * Respects skipDuplicates and updateExisting flags for proper duplicate handling
    */
   async importContacts(userId: string, dto: ImportContactsDto): Promise<ImportContactsResponseDto> {
-    this.logger.log(`Importing contacts for user ${userId}`);
+    this.logger.log(
+      `[importContacts] Starting import for user ${userId}, ` +
+        `selectedIds: ${dto.selectedContactIds?.length ?? 'all'}, ` +
+        `skipDuplicates: ${dto.skipDuplicates}, updateExisting: ${dto.updateExisting}`,
+    );
 
     const startTime = Date.now();
     const integration = await this.getActiveIntegration(userId);
@@ -358,6 +377,11 @@ export class GoogleContactsService {
     if (dto.selectedContactIds && dto.selectedContactIds.length > 0) {
       const selectedIds = dto.selectedContactIds;
       contactsToImport = allContacts.filter((contact) => selectedIds.includes(contact.externalId));
+      this.logger.log(
+        `[importContacts] Filtered to ${contactsToImport.length} contacts from ${allContacts.length} total`,
+      );
+    } else {
+      this.logger.log(`[importContacts] Importing all ${allContacts.length} contacts`);
     }
 
     // Get existing contacts for deduplication
@@ -373,10 +397,18 @@ export class GoogleContactsService {
       },
     });
 
+    this.logger.log(
+      `[importContacts] Found ${existingContacts.length} existing contacts for deduplication`,
+    );
+
     // Find duplicates using deduplication service
     const duplicates = await this.deduplicationService.findDuplicates(
       contactsToImport as any[],
       existingContacts as any[],
+    );
+
+    this.logger.log(
+      `[importContacts] Deduplication found ${duplicates.length} duplicate matches`,
     );
 
     const duplicateMap = new Map(
@@ -391,10 +423,21 @@ export class GoogleContactsService {
     let updated = 0;
     const errors: { contactId: string; error: string }[] = [];
     const importedContactIds: string[] = [];
+    let processedCount = 0;
+    const totalToProcess = contactsToImport.length;
 
     // Use transaction for atomic import - any error fails the entire transaction
     await this.prisma.$transaction(async (tx) => {
       for (const contact of contactsToImport) {
+        processedCount++;
+
+        // Log progress every 100 contacts
+        if (processedCount % 100 === 0 || processedCount === totalToProcess) {
+          this.logger.log(
+            `[importContacts] Progress: ${processedCount}/${totalToProcess} ` +
+              `(imported: ${imported}, updated: ${updated}, skipped: ${skipped}, errors: ${errors.length})`,
+          );
+        }
         try {
           const existingContact = duplicateMap.get(contact.externalId);
 
@@ -519,6 +562,11 @@ export class GoogleContactsService {
     }
 
     const duration = Date.now() - startTime;
+
+    this.logger.log(
+      `[importContacts] Completed: imported=${imported}, updated=${updated}, ` +
+        `skipped=${skipped}, failed=${errors.length}, duration=${duration}ms`,
+    );
 
     return {
       success: errors.length === 0,

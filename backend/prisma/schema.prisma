@@ -810,6 +810,7 @@ model EmailSyncConfig {
   outlookEnabled  Boolean   @default(false)
   privacyMode     Boolean   @default(true) // true = metadata only, false = full content
   syncEnabled     Boolean   @default(true)
+  syncHistoryDays Int       @default(365) // How many days back to sync (1-1825)
   excludedEmails  String[]  @default([]) // Emails to exclude from sync
   excludedDomains String[]  @default([]) // Domains to exclude from sync
   syncToken       String? // For incremental sync (Gmail historyId)

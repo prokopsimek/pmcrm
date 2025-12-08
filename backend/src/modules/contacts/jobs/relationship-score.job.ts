@@ -117,3 +117,5 @@ export class RelationshipScoreJob {
     return { processed: contacts.length };
   }
 }
+
+

@@ -143,3 +143,5 @@ export class SavedViewsController {
     return this.savedViewsService.setDefaultView(req.user.id, id);
   }
 }
+
+

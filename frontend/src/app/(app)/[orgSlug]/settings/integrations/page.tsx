@@ -4,26 +4,26 @@ import { ProtectedRoute } from '@/components/auth/protected-route';
 import { IntegrationCard } from '@/components/integrations/IntegrationCard';
 import { AppLayout } from '@/components/layout';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -31,23 +31,23 @@ import { Separator } from '@/components/ui/separator';
 import { PageSkeleton } from '@/components/ui/skeletons';
 import { Switch } from '@/components/ui/switch';
 import {
-  useDisconnectGmailIntegration,
-  useDisconnectGoogleCalendar,
-  useDisconnectGoogleIntegration,
-  useGmailConfig,
-  useGmailIntegrationStatus,
-  useGoogleCalendarAvailableCalendars,
-  useGoogleCalendarConfig,
-  useGoogleCalendarStatus,
-  useGoogleIntegrationStatus,
-  useInitiateGmailAuth,
-  useInitiateGoogleAuth,
-  useInitiateGoogleCalendarAuth,
-  useSyncGmailEmails,
-  useSyncGoogleCalendar,
-  useSyncGoogleContacts,
-  useUpdateGmailConfig,
-  useUpdateGoogleCalendarConfig,
+    useDisconnectGmailIntegration,
+    useDisconnectGoogleCalendar,
+    useDisconnectGoogleIntegration,
+    useGmailConfig,
+    useGmailIntegrationStatus,
+    useGoogleCalendarAvailableCalendars,
+    useGoogleCalendarConfig,
+    useGoogleCalendarStatus,
+    useGoogleIntegrationStatus,
+    useInitiateGmailAuth,
+    useInitiateGoogleAuth,
+    useInitiateGoogleCalendarAuth,
+    useSyncGmailEmails,
+    useSyncGoogleCalendar,
+    useSyncGoogleContacts,
+    useUpdateGmailConfig,
+    useUpdateGoogleCalendarConfig,
 } from '@/hooks';
 import { formatDistanceToNow } from 'date-fns';
 import { Calendar, Link2, Loader2, Mail, MessageSquare, RefreshCw, Settings2, Shield, ShieldCheck } from 'lucide-react';
@@ -70,6 +70,7 @@ export default function IntegrationsPage() {
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>([]);
   const [syncPeriodDays, setSyncPeriodDays] = useState<number>(30);
+  const [gmailSyncPeriodDays, setGmailSyncPeriodDays] = useState<number>(365);
 
   // Helper to create org-prefixed links
   const orgLink = (path: string) => `/${orgSlug}${path}`;
@@ -354,6 +355,8 @@ export default function IntegrationsPage() {
   };
 
   const handleManageGmail = () => {
+    // Initialize sync period from current config
+    setGmailSyncPeriodDays(gmailConfig?.syncHistoryDays || 365);
     setShowGmailSettings(true);
   };
 
@@ -433,6 +436,23 @@ export default function IntegrationsPage() {
         },
         onError: () => {
           toast.error('Failed to update settings');
+        },
+      }
+    );
+  };
+
+  const handleUpdateGmailSyncPeriod = (days: number) => {
+    setGmailSyncPeriodDays(days);
+    updateGmailConfig.mutate(
+      { syncHistoryDays: days },
+      {
+        onSuccess: () => {
+          toast.success('Sync period updated', {
+            description: `Emails from the last ${days} days will be synced.`,
+          });
+        },
+        onError: () => {
+          toast.error('Failed to update sync period');
         },
       }
     );
@@ -847,6 +867,36 @@ export default function IntegrationsPage() {
                     onCheckedChange={handleToggleSyncEnabled}
                     disabled={updateGmailConfig.isPending}
                   />
+                </div>
+
+                <Separator />
+
+                {/* Sync Period Setting */}
+                <div className="space-y-2">
+                  <Label>Sync period</Label>
+                  <Select
+                    value={gmailSyncPeriodDays.toString()}
+                    onValueChange={(value) => handleUpdateGmailSyncPeriod(parseInt(value))}
+                    disabled={updateGmailConfig.isPending}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">Last 7 days</SelectItem>
+                      <SelectItem value="14">Last 14 days</SelectItem>
+                      <SelectItem value="30">Last 30 days</SelectItem>
+                      <SelectItem value="60">Last 60 days</SelectItem>
+                      <SelectItem value="90">Last 3 months</SelectItem>
+                      <SelectItem value="180">Last 6 months</SelectItem>
+                      <SelectItem value="365">Last 1 year</SelectItem>
+                      <SelectItem value="730">Last 2 years</SelectItem>
+                      <SelectItem value="1825">Last 5 years</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-sm text-muted-foreground">
+                    Sync emails from this time period
+                  </p>
                 </div>
 
                 <Separator />

@@ -135,14 +135,17 @@ export class GmailClientService {
 
     const historyDays = options?.historyDays ?? DEFAULT_HISTORY_DAYS;
     const query = options?.query ?? `newer_than:${historyDays}d`;
+    const startTime = Date.now();
 
-    this.logger.log(`Fetching all messages with query: "${query}"`);
+    this.logger.log(`[fetchAllMessages] Starting with query: "${query}", historyDays: ${historyDays}`);
 
     const allMessages: EmailMessage[] = [];
     let pageToken: string | undefined;
     let pagesProcessed = 0;
 
     do {
+      const pageStartTime = Date.now();
+
       // Fetch message IDs for current page
       const listResponse = await gmail.users.messages.list({
         userId: 'me',
@@ -154,11 +157,12 @@ export class GmailClientService {
       const messageRefs = listResponse.data.messages || [];
       pagesProcessed++;
 
-      this.logger.debug(
-        `Page ${pagesProcessed}: Found ${messageRefs.length} message references`,
+      this.logger.log(
+        `[fetchAllMessages] Page ${pagesProcessed}: Found ${messageRefs.length} message references`,
       );
 
       // Fetch full message details for each message in this page
+      let fetchedInPage = 0;
       for (const messageRef of messageRefs) {
         if (!messageRef.id) continue;
 
@@ -171,12 +175,19 @@ export class GmailClientService {
 
           const parsedMessage = this.parseGmailMessage(messageDetail.data);
           allMessages.push(parsedMessage);
+          fetchedInPage++;
         } catch (error) {
           this.logger.warn(
-            `Failed to fetch message ${messageRef.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            `[fetchAllMessages] Failed to fetch message ${messageRef.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
           );
         }
       }
+
+      const pageTime = Date.now() - pageStartTime;
+      this.logger.log(
+        `[fetchAllMessages] Page ${pagesProcessed} complete: fetched ${fetchedInPage}/${messageRefs.length} messages, ` +
+          `total: ${allMessages.length}, took ${pageTime}ms`,
+      );
 
       // Report progress if callback provided
       if (options?.onProgress) {
@@ -185,14 +196,11 @@ export class GmailClientService {
 
       // Get next page token
       pageToken = listResponse.data.nextPageToken ?? undefined;
-
-      this.logger.debug(
-        `Progress: ${allMessages.length} messages fetched, hasNextPage: ${!!pageToken}`,
-      );
     } while (pageToken);
 
+    const totalTime = Date.now() - startTime;
     this.logger.log(
-      `Completed fetching ${allMessages.length} messages across ${pagesProcessed} pages`,
+      `[fetchAllMessages] Completed: ${allMessages.length} messages across ${pagesProcessed} pages, took ${totalTime}ms`,
     );
 
     return {

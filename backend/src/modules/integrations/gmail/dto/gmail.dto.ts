@@ -13,6 +13,18 @@ export class UpdateGmailConfigDto {
   @IsBoolean()
   privacyMode?: boolean; // true = metadata only, false = full content
 
+  @ApiPropertyOptional({
+    description: 'How many days back to sync emails (1-1825)',
+    minimum: 1,
+    maximum: 1825,
+    default: 365,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(1825)
+  syncHistoryDays?: number;
+
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
@@ -87,6 +99,7 @@ export class GmailConfigResponseDto {
   gmailEnabled: boolean;
   syncEnabled: boolean;
   privacyMode: boolean;
+  syncHistoryDays: number;
   excludedEmails: string[];
   excludedDomains: string[];
   lastGmailSync: Date | null;

@@ -129,3 +129,5 @@ export class AISummaryJob {
     this.logger.log(`Manually regenerated summaries for contact ${contactId}`);
   }
 }
+
+

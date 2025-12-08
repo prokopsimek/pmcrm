@@ -12,3 +12,5 @@ ALTER TABLE "calendar_sync_configs" DROP COLUMN IF EXISTS "outlookCalendarId";
 
 -- Update default for syncEnabled (existing rows keep their values)
 ALTER TABLE "calendar_sync_configs" ALTER COLUMN "syncEnabled" SET DEFAULT false;
+
+

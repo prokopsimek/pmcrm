@@ -260,6 +260,7 @@ export class GmailService {
       gmailEnabled: config.gmailEnabled,
       syncEnabled: config.syncEnabled,
       privacyMode: config.privacyMode,
+      syncHistoryDays: config.syncHistoryDays,
       excludedEmails: config.excludedEmails,
       excludedDomains: config.excludedDomains,
       lastGmailSync: config.lastGmailSync,
@@ -277,6 +278,7 @@ export class GmailService {
       update: {
         syncEnabled: dto.syncEnabled,
         privacyMode: dto.privacyMode,
+        syncHistoryDays: dto.syncHistoryDays,
         excludedEmails: dto.excludedEmails,
         excludedDomains: dto.excludedDomains,
         updatedAt: new Date(),
@@ -287,6 +289,7 @@ export class GmailService {
         outlookEnabled: false,
         syncEnabled: dto.syncEnabled ?? true,
         privacyMode: dto.privacyMode ?? true,
+        syncHistoryDays: dto.syncHistoryDays ?? 365,
         excludedEmails: dto.excludedEmails ?? [],
         excludedDomains: dto.excludedDomains ?? [],
       },
@@ -298,6 +301,7 @@ export class GmailService {
       gmailEnabled: config.gmailEnabled,
       syncEnabled: config.syncEnabled,
       privacyMode: config.privacyMode,
+      syncHistoryDays: config.syncHistoryDays,
       excludedEmails: config.excludedEmails,
       excludedDomains: config.excludedDomains,
       lastGmailSync: config.lastGmailSync,
@@ -534,6 +538,9 @@ export class GmailService {
       };
     }
 
+    // Use historyDays from options, or fall back to user's configured value
+    const historyDays = options?.historyDays ?? config.syncHistoryDays;
+
     // Create ImportJob record
     const importJob = await this.prisma.importJob.create({
       data: {
@@ -548,7 +555,7 @@ export class GmailService {
         errors: [],
         metadata: {
           fullSync: options?.fullSync ?? false,
-          historyDays: options?.historyDays ?? 365,
+          historyDays,
         },
       },
     });
@@ -558,7 +565,7 @@ export class GmailService {
       jobId: importJob.id,
       userId,
       fullSync: options?.fullSync,
-      historyDays: options?.historyDays,
+      historyDays,
     };
 
     await this.syncQueue.add('sync-gmail-background', jobData, {

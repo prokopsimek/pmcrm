@@ -6,6 +6,7 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../shared/database/prisma.service';
+import { RelationshipScoreService } from '../../contacts/services/relationship-score.service';
 import { DeduplicationService } from '../shared/deduplication.service';
 import { OAuthService } from '../shared/oauth.service';
 import { GoogleContactsService } from './google-contacts.service';
@@ -40,6 +41,7 @@ describe('GoogleContactsService (TDD - Unit)', () => {
   };
 
   const mockOAuthService = {
+    isConfigured: jest.fn().mockReturnValue(true),
     generateAuthUrl: jest.fn(),
     exchangeCodeForTokens: jest.fn(),
     refreshAccessToken: jest.fn(),
@@ -54,6 +56,11 @@ describe('GoogleContactsService (TDD - Unit)', () => {
     mergeContacts: jest.fn(),
   };
 
+  const mockRelationshipScoreService = {
+    recalculateForContacts: jest.fn(),
+    calculateScore: jest.fn(),
+  };
+
   const mockUserId = 'user-123';
   const mockIntegrationId = 'integration-456';
 
@@ -64,6 +71,7 @@ describe('GoogleContactsService (TDD - Unit)', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: OAuthService, useValue: mockOAuthService },
         { provide: DeduplicationService, useValue: mockDeduplicationService },
+        { provide: RelationshipScoreService, useValue: mockRelationshipScoreService },
       ],
     }).compile();
 

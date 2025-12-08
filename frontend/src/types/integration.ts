@@ -25,6 +25,7 @@ export interface GmailConfigResponse {
   gmailEnabled: boolean;
   syncEnabled: boolean;
   privacyMode: boolean;
+  syncHistoryDays: number;
   excludedEmails: string[];
   excludedDomains: string[];
   lastGmailSync: string | null;
@@ -35,6 +36,7 @@ export interface GmailConfigResponse {
 export interface UpdateGmailConfigRequest {
   syncEnabled?: boolean;
   privacyMode?: boolean;
+  syncHistoryDays?: number;
   excludedEmails?: string[];
   excludedDomains?: string[];
 }
