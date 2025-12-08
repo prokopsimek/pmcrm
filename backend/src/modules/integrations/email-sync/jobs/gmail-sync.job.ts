@@ -5,7 +5,7 @@
  */
 
 import { Process, Processor } from '@nestjs/bull';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from 'bull';
 import { QueueName } from '../../../../shared/config/bull.config';
 import { PrismaService } from '../../../../shared/database/prisma.service';
@@ -36,7 +36,7 @@ const DEFAULT_HISTORY_DAYS = 365;
  */
 @Processor(QueueName.INTEGRATION_SYNC)
 @Injectable()
-export class GmailSyncJob {
+export class GmailSyncJob implements OnModuleInit {
   private readonly logger = new Logger(GmailSyncJob.name);
 
   constructor(
@@ -45,6 +45,10 @@ export class GmailSyncJob {
     private readonly emailMatcher: EmailMatcherService,
     private readonly oauthService: OAuthService,
   ) {}
+
+  onModuleInit() {
+    this.logger.log('GmailSyncJob processor initialized and listening for jobs');
+  }
 
   /**
    * Process Gmail sync job
