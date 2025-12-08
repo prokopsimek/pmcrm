@@ -127,9 +127,7 @@ export class GmailSyncJob implements OnModuleInit {
         newHistoryId = result.newHistoryId;
       } else {
         // Full sync with pagination
-        this.logger.log(
-          `[GmailSyncJob] Using full sync for last ${effectiveHistoryDays} days`,
-        );
+        this.logger.log(`[GmailSyncJob] Using full sync for last ${effectiveHistoryDays} days`);
 
         const fetchResult = await this.gmailClient.fetchAllMessages(accessToken, {
           historyDays: effectiveHistoryDays,
@@ -184,12 +182,7 @@ export class GmailSyncJob implements OnModuleInit {
         );
 
         try {
-          const batchResult = await this.processEmailBatch(
-            batch,
-            userId,
-            user.email,
-            config,
-          );
+          const batchResult = await this.processEmailBatch(batch, userId, user.email, config);
 
           importedCount += batchResult.imported;
           skippedCount += batchResult.skipped;
@@ -514,5 +507,3 @@ export class GmailSyncJob implements OnModuleInit {
     return false;
   }
 }
-
-
