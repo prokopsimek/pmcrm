@@ -67,7 +67,7 @@ export const icebreakerService = {
    * Generate AI icebreaker message variations
    */
   generate: async (input: GenerateIcebreakerInput): Promise<IcebreakerResponse> => {
-    const response = await apiClient.post<IcebreakerResponse>('/api/v1/ai/icebreaker/generate', input);
+    const response = await apiClient.post<IcebreakerResponse>('/ai/icebreaker/generate', input);
     return response.data;
   },
 
@@ -76,7 +76,7 @@ export const icebreakerService = {
    */
   regenerate: async (id: string, input?: RegenerateIcebreakerInput): Promise<IcebreakerResponse> => {
     const response = await apiClient.post<IcebreakerResponse>(
-      `/api/v1/ai/icebreaker/${id}/regenerate`,
+      `/ai/icebreaker/${id}/regenerate`,
       input || {},
     );
     return response.data;
@@ -87,7 +87,7 @@ export const icebreakerService = {
    */
   edit: async (id: string, editedContent: string): Promise<{ id: string; edited: boolean; editedContent: string }> => {
     const response = await apiClient.post<{ id: string; edited: boolean; editedContent: string }>(
-      `/api/v1/ai/icebreaker/${id}/edit`,
+      `/ai/icebreaker/${id}/edit`,
       { editedContent },
     );
     return response.data;
@@ -98,7 +98,7 @@ export const icebreakerService = {
    */
   selectVariation: async (id: string, variationIndex: number): Promise<{ id: string; selected: MessageVariation }> => {
     const response = await apiClient.post<{ id: string; selected: MessageVariation }>(
-      `/api/v1/ai/icebreaker/${id}/select`,
+      `/ai/icebreaker/${id}/select`,
       { variationIndex },
     );
     return response.data;
@@ -109,7 +109,7 @@ export const icebreakerService = {
    */
   submitFeedback: async (id: string, feedback: IcebreakerFeedback): Promise<{ id: string; feedback: string }> => {
     const response = await apiClient.post<{ id: string; feedback: string }>(
-      `/api/v1/ai/icebreaker/${id}/feedback`,
+      `/ai/icebreaker/${id}/feedback`,
       { feedback },
     );
     return response.data;
@@ -119,7 +119,7 @@ export const icebreakerService = {
    * Get user icebreaker generation history
    */
   getHistory: async (): Promise<IcebreakerHistoryItem[]> => {
-    const response = await apiClient.get<IcebreakerHistoryItem[]>('/api/v1/ai/icebreaker/history');
+    const response = await apiClient.get<IcebreakerHistoryItem[]>('/ai/icebreaker/history');
     return response.data;
   },
 };

@@ -32,7 +32,7 @@ export const searchService = {
       params.append('limit', options.limit.toString());
     }
 
-    const response = await apiClient.get<SearchResult<ContactSearchResult>>(`/api/v1/search/contacts?${params.toString()}`);
+    const response = await apiClient.get<SearchResult<ContactSearchResult>>(`/search/contacts?${params.toString()}`);
     return response.data;
   },
 
@@ -40,7 +40,7 @@ export const searchService = {
    * Get recent searches
    */
   async getRecentSearches(): Promise<SearchHistoryItem[]> {
-    const response = await apiClient.get<SearchHistoryItem[]>('/api/v1/search/recent');
+    const response = await apiClient.get<SearchHistoryItem[]>('/search/recent');
     return response.data;
   },
 
@@ -48,13 +48,13 @@ export const searchService = {
    * Clear specific search from history
    */
   async clearRecentSearch(searchId: string): Promise<void> {
-    await apiClient.delete(`/api/v1/search/recent/${searchId}`);
+    await apiClient.delete(`/search/recent/${searchId}`);
   },
 
   /**
    * Clear all search history
    */
   async clearAllRecentSearches(): Promise<void> {
-    await apiClient.delete('/api/v1/search/recent');
+    await apiClient.delete('/search/recent');
   },
 };
