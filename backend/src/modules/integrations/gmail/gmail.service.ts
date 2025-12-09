@@ -273,6 +273,24 @@ export class GmailService {
    * Update Gmail sync configuration
    */
   async updateConfig(userId: string, dto: UpdateGmailConfigDto): Promise<GmailConfigResponseDto> {
+    // Get current config to check if sync period is being extended
+    const currentConfig = await this.prisma.emailSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    // Check if sync period is being extended - if so, reset sync state to force full sync
+    const isExtendingPeriod =
+      dto.syncHistoryDays !== undefined &&
+      currentConfig?.syncHistoryDays !== undefined &&
+      dto.syncHistoryDays > currentConfig.syncHistoryDays;
+
+    if (isExtendingPeriod) {
+      this.logger.log(
+        `[updateConfig] Sync period extended from ${currentConfig.syncHistoryDays} to ${dto.syncHistoryDays} days for user ${userId}. ` +
+          `Resetting sync state to fetch emails from extended period.`,
+      );
+    }
+
     const config = await this.prisma.emailSyncConfig.upsert({
       where: { userId },
       update: {
@@ -282,6 +300,8 @@ export class GmailService {
         excludedEmails: dto.excludedEmails,
         excludedDomains: dto.excludedDomains,
         updatedAt: new Date(),
+        // Reset sync state if period is extended to force full sync
+        ...(isExtendingPeriod && { lastGmailSync: null, syncToken: null }),
       },
       create: {
         userId,

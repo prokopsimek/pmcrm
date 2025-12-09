@@ -1166,6 +1166,24 @@ export class CalendarSyncService {
       `[updateCalendarSelection] Starting for user ${userId}, calendars: ${dto.selectedCalendarIds.length}, syncPeriodDays: ${syncPeriodDays}`,
     );
 
+    // Get current config to check if sync period is being extended
+    const currentConfig = await this.prisma.calendarSyncConfig.findUnique({
+      where: { userId },
+    });
+
+    // Check if sync period is being extended - if so, reset sync state to force full sync
+    const isExtendingPeriod =
+      dto.syncPeriodDays !== undefined &&
+      currentConfig?.syncPeriodDays !== undefined &&
+      dto.syncPeriodDays > currentConfig.syncPeriodDays;
+
+    if (isExtendingPeriod) {
+      this.logger.log(
+        `[updateCalendarSelection] Sync period extended from ${currentConfig.syncPeriodDays} to ${dto.syncPeriodDays} days for user ${userId}. ` +
+          `Resetting sync state to fetch events from extended period.`,
+      );
+    }
+
     // Update or create sync config
     const syncConfig = await this.prisma.calendarSyncConfig.upsert({
       where: { userId },
@@ -1179,6 +1197,8 @@ export class CalendarSyncService {
         selectedCalendarIds: dto.selectedCalendarIds,
         syncEnabled: isConfigured,
         syncPeriodDays,
+        // Reset sync state if period is extended to force full sync
+        ...(isExtendingPeriod && { lastSyncAt: null, syncToken: null }),
       },
     });
 
