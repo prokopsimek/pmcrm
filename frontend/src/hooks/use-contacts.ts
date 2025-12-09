@@ -1,6 +1,6 @@
 import { contactsService } from '@/lib/api';
 import { getApiUrl } from '@/lib/api/config';
-import type { ContactEmail } from '@/lib/api/services/contacts.service';
+import type { ContactEmail, CreateContactReminderInput } from '@/lib/api/services/contacts.service';
 import { queryKeys } from '@/lib/react-query';
 import type {
     ContactFilters,
@@ -291,5 +291,20 @@ export function useContactReminders(contactId: string) {
     queryKey: ['contacts', contactId, 'reminders'],
     queryFn: () => contactsService.getContactReminders(contactId),
     enabled: !!contactId,
+  });
+}
+
+/**
+ * Hook to create a reminder for a contact
+ */
+export function useCreateContactReminder(contactId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: Omit<CreateContactReminderInput, 'contactId'>) =>
+      contactsService.createContactReminder({ contactId, ...input }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['contacts', contactId, 'reminders'] });
+    },
   });
 }

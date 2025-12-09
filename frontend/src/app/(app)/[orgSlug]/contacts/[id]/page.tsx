@@ -9,13 +9,24 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import {
     useContact,
     useContactAISummary,
     useContactRecommendations,
     useContactReminders,
+    useCreateContactReminder,
     useRegenerateAISummary
 } from '@/hooks/use-contacts';
 import { useContactNotes, useNoteActions } from '@/hooks/use-notes';
@@ -43,6 +54,7 @@ import {
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 export default function ContactDetailPage() {
   const params = useParams();
@@ -55,6 +67,7 @@ export default function ContactDetailPage() {
   const { data: recommendations, isLoading: recsLoading } = useContactRecommendations(contactId);
   const { data: reminders, isLoading: remindersLoading } = useContactReminders(contactId);
   const regenerateSummary = useRegenerateAISummary();
+  const createReminder = useCreateContactReminder(contactId);
 
   // Notes hooks
   const { data: notesData, isLoading: notesLoading } = useContactNotes(contactId);
@@ -64,6 +77,12 @@ export default function ContactDetailPage() {
 
   const [activeTab, setActiveTab] = useState('ai-summary');
   const [icebreakerDialogOpen, setIcebreakerDialogOpen] = useState(false);
+  const [reminderDialogOpen, setReminderDialogOpen] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState('');
+  const [reminderDate, setReminderDate] = useState('');
+  const [reminderTime, setReminderTime] = useState('');
+  const [reminderMessage, setReminderMessage] = useState('');
+  const [reminderFrequencyDays, setReminderFrequencyDays] = useState('');
 
   // Note action handlers
   const handleCreateNote = (content: string) => {
@@ -85,6 +104,43 @@ export default function ContactDetailPage() {
 
   const handleTogglePin = (noteId: string) => {
     togglePin.mutate(noteId);
+  };
+
+  const resetReminderForm = () => {
+    setReminderTitle('');
+    setReminderDate('');
+    setReminderTime('');
+    setReminderMessage('');
+    setReminderFrequencyDays('');
+  };
+
+  const handleCreateReminder = async () => {
+    if (!reminderTitle.trim()) {
+      toast.error('Title is required');
+      return;
+    }
+    if (!reminderDate) {
+      toast.error('Date is required');
+      return;
+    }
+
+    const timePart = reminderTime || '09:00';
+    const scheduled = new Date(`${reminderDate}T${timePart}`);
+
+    try {
+      await createReminder.mutateAsync({
+        title: reminderTitle.trim(),
+        scheduledFor: scheduled.toISOString(),
+        message: reminderMessage.trim() || undefined,
+        frequencyDays: reminderFrequencyDays ? Number(reminderFrequencyDays) : undefined,
+      });
+      toast.success('Reminder created');
+      resetReminderForm();
+      setReminderDialogOpen(false);
+    } catch (error) {
+      toast.error('Failed to create reminder');
+      console.error(error);
+    }
   };
 
   // Helper to create org-prefixed links
@@ -308,7 +364,7 @@ export default function ContactDetailPage() {
                   <Bell className="h-5 w-5 text-blue-500" />
                   Reminders
                 </CardTitle>
-                <Button size="sm" variant="outline">
+                <Button size="sm" variant="outline" onClick={() => setReminderDialogOpen(true)}>
                   <Plus className="h-4 w-4 mr-1" />
                   Add
                 </Button>
@@ -348,6 +404,87 @@ export default function ContactDetailPage() {
             updatingNoteId={updatingNoteId}
             deletingNoteId={deletingNoteId}
           />
+
+          <Dialog open={reminderDialogOpen} onOpenChange={setReminderDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Reminder</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="reminder-title">Title</Label>
+                  <Input
+                    id="reminder-title"
+                    value={reminderTitle}
+                    onChange={(e) => setReminderTitle(e.target.value)}
+                    placeholder="Follow up call"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="reminder-date">Date</Label>
+                    <Input
+                      id="reminder-date"
+                      type="date"
+                      value={reminderDate}
+                      onChange={(e) => setReminderDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="reminder-time">Time</Label>
+                    <Input
+                      id="reminder-time"
+                      type="time"
+                      value={reminderTime}
+                      onChange={(e) => setReminderTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reminder-message">Message (optional)</Label>
+                  <Textarea
+                    id="reminder-message"
+                    value={reminderMessage}
+                    onChange={(e) => setReminderMessage(e.target.value)}
+                    placeholder="What do you want to remember?"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reminder-frequency">Frequency days (optional)</Label>
+                  <Input
+                    id="reminder-frequency"
+                    type="number"
+                    min={1}
+                    value={reminderFrequencyDays}
+                    onChange={(e) => setReminderFrequencyDays(e.target.value)}
+                    placeholder="e.g. 30"
+                  />
+                </div>
+              </div>
+              <DialogFooter className="justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setReminderDialogOpen(false);
+                    resetReminderForm();
+                  }}
+                  disabled={createReminder.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleCreateReminder} disabled={createReminder.isPending}>
+                  {createReminder.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Reminder'
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>

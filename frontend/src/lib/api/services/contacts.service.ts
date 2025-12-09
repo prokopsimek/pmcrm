@@ -165,6 +165,14 @@ export const contactsService = {
   },
 
   /**
+   * Create a reminder for a contact
+   */
+  createContactReminder: async (input: CreateContactReminderInput): Promise<ContactReminder> => {
+    const response = await apiClient.post<ContactReminder>('/reminders', input);
+    return response.data;
+  },
+
+  /**
    * Get unified timeline for a contact
    * Aggregates emails, meetings, calls, notes into a single timeline
    */
@@ -238,6 +246,14 @@ export interface ContactReminder {
   snoozedUntil: string | null;
   completedAt: string | null;
   createdAt: string;
+}
+
+export interface CreateContactReminderInput {
+  contactId: string;
+  title: string;
+  scheduledFor: string;
+  message?: string;
+  frequencyDays?: number;
 }
 
 // Timeline types
