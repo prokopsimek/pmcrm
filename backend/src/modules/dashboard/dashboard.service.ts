@@ -177,12 +177,66 @@ export class DashboardService {
    * Get recent activity
    */
   async getRecentActivity(userId: string, params: { limit: number; offset: number }) {
-    const activities = await this.prisma.activityLog.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      skip: params.offset,
-      take: params.limit,
-    });
+    const [activities, emailThreads, notes] = await Promise.all([
+      this.prisma.activityLog.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        skip: params.offset,
+        take: params.limit,
+      }),
+      this.prisma.emailThread.findMany({
+        where: {
+          contact: { userId },
+        },
+        include: {
+          contact: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              company: true,
+              position: true,
+              notes: true,
+              tags: true,
+              importance: true,
+              lastContact: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+        orderBy: { occurredAt: 'desc' },
+        skip: params.offset,
+        take: params.limit,
+      }),
+      this.prisma.note.findMany({
+        where: { userId },
+        include: {
+          contact: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              phone: true,
+              company: true,
+              position: true,
+              notes: true,
+              tags: true,
+              importance: true,
+              lastContact: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: params.offset,
+        take: params.limit,
+      }),
+    ]);
 
     const reminderIds = activities
       .filter(
@@ -218,7 +272,7 @@ export class DashboardService {
 
     const reminderMap = new Map(reminders.map((reminder) => [reminder.id, reminder]));
 
-    return activities.map((activity) => {
+    const activityItems = activities.map((activity) => {
       const reminder =
         activity.entity === 'reminder' && activity.entityId
           ? reminderMap.get(activity.entityId)
@@ -236,6 +290,30 @@ export class DashboardService {
         metadata: activity.metadata ?? undefined,
       };
     });
+
+    const emailItems = emailThreads.map((email) => ({
+      id: email.id,
+      type: 'email_sent',
+      description: email.subject || 'No subject',
+      timestamp: email.occurredAt.toISOString(),
+      contactId: email.contactId,
+      contact: this.mapContactToResponse(email.contact),
+      metadata: (email.metadata as Record<string, unknown>) ?? undefined,
+    }));
+
+    const noteItems = notes.map((note) => ({
+      id: note.id,
+      type: 'note_added',
+      description: note.content.substring(0, 50) + (note.content.length > 50 ? '...' : ''),
+      timestamp: note.createdAt.toISOString(),
+      contactId: note.contactId,
+      contact: this.mapContactToResponse(note.contact),
+      metadata: undefined,
+    }));
+
+    return [...activityItems, ...emailItems, ...noteItems]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, params.limit);
   }
 
   /**
