@@ -1,18 +1,23 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
-import { toast } from 'sonner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ListSkeleton } from '@/components/ui/skeletons';
-import { Clock, CheckCircle, ChevronRight, Calendar, UserCircle } from 'lucide-react';
-import { usePendingFollowups, useMarkFollowupDone, useSnoozeFollowup } from '@/hooks';
-import { formatDistanceToNow } from '@/lib/utils/date';
+import { useMarkFollowupDone, usePendingFollowups, useSnoozeFollowup } from '@/hooks';
 import { cn } from '@/lib/utils';
+import { formatDistanceToNow } from '@/lib/utils/date';
+import { Calendar, CheckCircle, ChevronRight, Clock, UserCircle } from 'lucide-react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import React from 'react';
+import { toast } from 'sonner';
 
 export const PendingFollowupsWidget: React.FC = () => {
+  const params = useParams();
+  const orgSlug = params?.orgSlug as string | undefined;
+  const orgLink = (path: string) => (orgSlug ? `/${orgSlug}${path}` : path);
+
   const { data: followups, isLoading } = usePendingFollowups({ limit: 10 });
   const markDone = useMarkFollowupDone();
   const snooze = useSnoozeFollowup();
@@ -112,7 +117,7 @@ export const PendingFollowupsWidget: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <Link
-                      href={`/contacts/${followup.contact.id}`}
+                      href={orgLink(`/contacts/${followup.contact.id}`)}
                       className="font-medium text-foreground hover:text-primary truncate transition-colors"
                     >
                       {followup.contact.firstName} {followup.contact.lastName}
@@ -184,7 +189,7 @@ export const PendingFollowupsWidget: React.FC = () => {
             </div>
           ))}
         </div>
-        <Link href="/reminders">
+        <Link href={orgLink('/reminders')}>
           <Button variant="ghost" className="w-full mt-4 gap-2">
             View all reminders
             <ChevronRight className="h-4 w-4" />

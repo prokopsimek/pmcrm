@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/shared/database/prisma.service';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 /**
  * Dashboard Service
@@ -146,7 +146,15 @@ export class DashboardService {
             firstName: true,
             lastName: true,
             email: true,
+            phone: true,
             company: true,
+            position: true,
+            notes: true,
+            tags: true,
+            importance: true,
+            lastContact: true,
+            createdAt: true,
+            updatedAt: true,
           },
         },
       },
@@ -154,7 +162,15 @@ export class DashboardService {
       take: params.limit,
     });
 
-    return insights;
+    return insights.map((insight) => ({
+      id: insight.id,
+      contactId: insight.contactId,
+      contact: this.mapContactToResponse(insight.contact),
+      reason: insight.content,
+      urgencyScore: Math.round((insight.confidence ?? 0) * 100),
+      triggerType: this.mapInsightTypeToTrigger(insight.type),
+      createdAt: insight.createdAt.toISOString(),
+    }));
   }
 
   /**
@@ -168,7 +184,58 @@ export class DashboardService {
       take: params.limit,
     });
 
-    return activities;
+    const reminderIds = activities
+      .filter(
+        (activity): activity is typeof activity & { entityId: string } =>
+          activity.entity === 'reminder' && !!activity.entityId,
+      )
+      .map((activity) => activity.entityId);
+
+    const reminders = reminderIds.length
+      ? await this.prisma.reminder.findMany({
+          where: { id: { in: reminderIds } },
+          include: {
+            contact: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                email: true,
+                phone: true,
+                company: true,
+                position: true,
+                notes: true,
+                tags: true,
+                importance: true,
+                lastContact: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const reminderMap = new Map(reminders.map((reminder) => [reminder.id, reminder]));
+
+    return activities.map((activity) => {
+      const reminder =
+        activity.entity === 'reminder' && activity.entityId
+          ? reminderMap.get(activity.entityId)
+          : undefined;
+      const contact = reminder?.contact;
+      const contactIdFromMetadata = (activity.metadata as { contactId?: string } | null)?.contactId;
+
+      return {
+        id: activity.id,
+        type: this.mapActivityType(activity.action),
+        description: this.buildActivityDescription(activity.action, contact),
+        timestamp: activity.createdAt.toISOString(),
+        contactId: contact?.id ?? contactIdFromMetadata,
+        contact: contact ? this.mapContactToResponse(contact) : undefined,
+        metadata: activity.metadata ?? undefined,
+      };
+    });
   }
 
   /**
@@ -319,5 +386,107 @@ export class DashboardService {
     }
 
     return Math.max(0, Math.min(100, strength));
+  }
+
+  private mapContactToResponse(contact: {
+    id: string;
+    firstName: string;
+    lastName: string | null;
+    email: string | null;
+    phone: string | null;
+    company: string | null;
+    position: string | null;
+    notes: string | null;
+    tags: string[] | null;
+    importance: number | null;
+    lastContact: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: contact.id,
+      firstName: contact.firstName,
+      lastName: contact.lastName || '',
+      email: contact.email || undefined,
+      phone: contact.phone || undefined,
+      company: contact.company || undefined,
+      position: contact.position || undefined,
+      notes: contact.notes || undefined,
+      tags: contact.tags || undefined,
+      lastContactedAt: contact.lastContact ? contact.lastContact.toISOString() : undefined,
+      importance: contact.importance ?? undefined,
+      createdAt: contact.createdAt.toISOString(),
+      updatedAt: contact.updatedAt.toISOString(),
+    };
+  }
+
+  private mapInsightTypeToTrigger(
+    insightType: string,
+  ): 'job_change' | 'company_news' | 'birthday' | 'overdue' | 'general' {
+    switch (insightType) {
+      case 'FOLLOW_UP_SUGGESTION':
+        return 'overdue';
+      case 'NETWORKING_OPPORTUNITY':
+        return 'company_news';
+      case 'CONTACT_RECOMMENDATION':
+        return 'general';
+      case 'IMPORTANCE_CHANGE':
+        return 'general';
+      case 'RELATIONSHIP_STRENGTH':
+        return 'general';
+      case 'INTERACTION_PATTERN':
+        return 'general';
+      default:
+        return 'general';
+    }
+  }
+
+  private mapActivityType(action: string): string {
+    // Currently actions are stored in activityLog.action; map known ones and fall back to raw value
+    switch (action) {
+      case 'reminder_completed':
+        return 'reminder_completed';
+      case 'contact_added':
+        return 'contact_added';
+      case 'email_sent':
+        return 'email_sent';
+      case 'meeting':
+        return 'meeting';
+      case 'integration_connected':
+        return 'integration_connected';
+      case 'note_added':
+        return 'note_added';
+      default:
+        return action;
+    }
+  }
+
+  private buildActivityDescription(
+    action: string,
+    contact?: {
+      id: string;
+      firstName: string;
+      lastName: string | null;
+      company: string | null;
+    } | null,
+  ): string {
+    const fullName = contact ? `${contact.firstName} ${contact.lastName || ''}`.trim() : null;
+
+    switch (action) {
+      case 'reminder_completed':
+        return fullName ? `Completed reminder for ${fullName}` : 'Completed reminder';
+      case 'contact_added':
+        return fullName ? `Added contact ${fullName}` : 'Added a contact';
+      case 'email_sent':
+        return fullName ? `Sent an email to ${fullName}` : 'Sent an email';
+      case 'meeting':
+        return fullName ? `Logged a meeting with ${fullName}` : 'Logged a meeting';
+      case 'integration_connected':
+        return 'Connected an integration';
+      case 'note_added':
+        return fullName ? `Added a note for ${fullName}` : 'Added a note';
+      default:
+        return fullName ? `${action.replace(/_/g, ' ')} (${fullName})` : action.replace(/_/g, ' ');
+    }
   }
 }

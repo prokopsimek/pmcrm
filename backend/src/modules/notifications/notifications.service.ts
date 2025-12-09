@@ -1,6 +1,6 @@
+import { PrismaService } from '@/shared/database/prisma.service';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
-import { PrismaService } from '../../../shared/database/prisma.service';
 
 @Injectable()
 export class NotificationsService {
