@@ -6,6 +6,7 @@
 
 import { Process, Processor } from '@nestjs/bull';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import type { Job } from 'bull';
 import { QueueName } from '../../../../shared/config/bull.config';
 import { PrismaService } from '../../../../shared/database/prisma.service';
@@ -44,7 +45,9 @@ export class GmailSyncJob implements OnModuleInit {
     private readonly gmailClient: GmailClientService,
     private readonly emailMatcher: EmailMatcherService,
     private readonly oauthService: OAuthService,
-  ) {}
+  ) {
+    this.logger.log('GmailSyncJob constructed and ready for processing');
+  }
 
   onModuleInit() {
     this.logger.log('GmailSyncJob processor initialized and listening for jobs');
@@ -58,6 +61,10 @@ export class GmailSyncJob implements OnModuleInit {
   async handleSync(job: Job<GmailSyncJobData>) {
     const { jobId, userId, fullSync, historyDays } = job.data;
     const startTime = Date.now();
+
+    this.logger.log(
+      `[GmailSyncJob] handleSync invoked (bullId=${job.id ?? 'n/a'}, jobId=${jobId}, user=${userId})`,
+    );
 
     this.logger.log(
       `[GmailSyncJob] Starting sync job ${jobId} for user ${userId}, ` +
@@ -131,9 +138,9 @@ export class GmailSyncJob implements OnModuleInit {
 
         const fetchResult = await this.gmailClient.fetchAllMessages(accessToken, {
           historyDays: effectiveHistoryDays,
-          onProgress: async (fetched) => {
-            // Update progress during fetch phase
-            await this.prisma.importJob.update({
+          onProgress: (fetched) => {
+            // Update progress during fetch phase (fire-and-forget)
+            void this.prisma.importJob.update({
               where: { id: jobId },
               data: {
                 totalCount: fetched,
@@ -143,7 +150,7 @@ export class GmailSyncJob implements OnModuleInit {
                 },
               },
             });
-            await job.progress(Math.min(25, Math.round((fetched / 1000) * 25))); // Max 25% during fetch
+            void job.progress(Math.min(25, Math.round((fetched / 1000) * 25))); // Max 25% during fetch
           },
         });
 
@@ -410,7 +417,7 @@ export class GmailSyncJob implements OnModuleInit {
                   to: message.to,
                   cc: message.cc,
                 }),
-              ),
+              ) as Prisma.InputJsonValue,
             },
             update: {
               subject: message.subject,

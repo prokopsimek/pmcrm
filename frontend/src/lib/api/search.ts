@@ -1,10 +1,10 @@
-import { apiClient } from './client';
 import type {
-  SearchResult,
-  ContactSearchResult,
-  SearchHistoryItem,
-  SearchOptions,
+    ContactSearchResult,
+    SearchHistoryItem,
+    SearchOptions,
+    SearchResult,
 } from '@/types/search';
+import { apiClient } from './client';
 
 export const searchService = {
   /**
