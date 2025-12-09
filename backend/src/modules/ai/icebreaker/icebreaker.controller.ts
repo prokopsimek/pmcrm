@@ -4,30 +4,30 @@
  */
 
 import {
-  Controller,
-  Post,
-  Get,
-  Body,
-  Param,
-  Request,
-  HttpCode,
-  HttpStatus,
-  UnauthorizedException,
+    Body,
+    Controller,
+    Get,
+    HttpCode,
+    HttpStatus,
+    Param,
+    Post,
+    Request,
+    UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
-import { IcebreakerService } from './icebreaker.service';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
-  GenerateIcebreakerDto,
-  RegenerateIcebreakerDto,
-  EditIcebreakerDto,
-  SelectVariationDto,
-  SubmitFeedbackDto,
-  IcebreakerResponseDto,
-  IcebreakerHistoryDto,
+    EditIcebreakerDto,
+    GenerateIcebreakerDto,
+    IcebreakerHistoryDto,
+    IcebreakerResponseDto,
+    RegenerateIcebreakerDto,
+    SelectVariationDto,
+    SubmitFeedbackDto,
 } from './dto/generate-icebreaker.dto';
+import { IcebreakerService } from './icebreaker.service';
 
 @ApiTags('AI Icebreaker')
-@Controller('api/v1/ai/icebreaker')
+@Controller('ai/icebreaker')
 @ApiBearerAuth()
 export class IcebreakerController {
   constructor(private readonly icebreakerService: IcebreakerService) {}
