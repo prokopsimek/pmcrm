@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/shared/database/prisma.service';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -34,8 +34,8 @@ export class FullTextSearchService {
     fields?: string[],
     limit: number = 20,
   ): Promise<any[]> {
-    // Use pg_trgm for fuzzy matching
-    const fieldConditions = this.buildFuzzyFieldConditions(query, fields);
+    // Normalize to lowercase so matching is case-insensitive
+    const normalizedQuery = query.toLowerCase();
 
     const results = await this.prisma.$queryRaw`
       SELECT
@@ -53,19 +53,19 @@ export class FullTextSearchService {
         c.created_at,
         c.updated_at,
         GREATEST(
-          similarity(COALESCE(c.first_name, ''), ${query}),
-          similarity(COALESCE(c.last_name, ''), ${query}),
-          similarity(COALESCE(c.email, ''), ${query}),
-          similarity(COALESCE(c.company, ''), ${query})
+          similarity(LOWER(COALESCE(c.first_name, '')), ${normalizedQuery}),
+          similarity(LOWER(COALESCE(c.last_name, '')), ${normalizedQuery}),
+          similarity(LOWER(COALESCE(c.email, '')), ${normalizedQuery}),
+          similarity(LOWER(COALESCE(c.company, '')), ${normalizedQuery})
         ) as similarity_score
       FROM contacts c
       WHERE c.user_id = ${userId}::uuid
         AND c.deleted_at IS NULL
         AND (
-          similarity(COALESCE(c.first_name, ''), ${query}) > 0.3
-          OR similarity(COALESCE(c.last_name, ''), ${query}) > 0.3
-          OR similarity(COALESCE(c.email, ''), ${query}) > 0.3
-          OR similarity(COALESCE(c.company, ''), ${query}) > 0.3
+          similarity(LOWER(COALESCE(c.first_name, '')), ${normalizedQuery}) > 0.3
+          OR similarity(LOWER(COALESCE(c.last_name, '')), ${normalizedQuery}) > 0.3
+          OR similarity(LOWER(COALESCE(c.email, '')), ${normalizedQuery}) > 0.3
+          OR similarity(LOWER(COALESCE(c.company, '')), ${normalizedQuery}) > 0.3
         )
       ORDER BY similarity_score DESC
       LIMIT ${limit}
