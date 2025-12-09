@@ -3,9 +3,9 @@
  * US-051: AI icebreaker message generation
  */
 
-import { IsString, IsEnum, IsOptional, IsUUID, IsInt, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export enum ChannelEnum {
   EMAIL = 'email',
@@ -27,7 +27,7 @@ export enum FeedbackEnum {
 
 export class GenerateIcebreakerDto {
   @ApiProperty({ description: 'Contact ID to generate icebreaker for' })
-  @IsUUID()
+  @IsString()
   contactId!: string;
 
   @ApiProperty({ enum: ChannelEnum, description: 'Communication channel' })

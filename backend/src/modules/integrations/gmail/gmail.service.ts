@@ -1,11 +1,11 @@
 import { InjectQueue } from '@nestjs/bull';
 import {
-    BadRequestException,
-    ForbiddenException,
-    Injectable,
-    Logger,
-    NotFoundException,
-    UnauthorizedException,
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Queue } from 'bull';
 import { QueueName } from '../../../shared/config/bull.config';
@@ -15,17 +15,17 @@ import { EmailMatcherService } from '../email-sync/services/email-matcher.servic
 import { GmailClientService } from '../email-sync/services/gmail-client.service';
 import { OAuthService } from '../shared/oauth.service';
 import {
-    EmailSyncResultDto,
-    GmailConfigResponseDto,
-    GmailDisconnectResponseDto,
-    GmailOAuthCallbackResponseDto,
-    GmailOAuthInitiateResponseDto,
-    GmailStatusResponseDto,
-    GmailSyncJobResponseDto,
-    GmailSyncJobStatusDto,
-    QueueGmailSyncDto,
-    TriggerSyncDto,
-    UpdateGmailConfigDto,
+  EmailSyncResultDto,
+  GmailConfigResponseDto,
+  GmailDisconnectResponseDto,
+  GmailOAuthCallbackResponseDto,
+  GmailOAuthInitiateResponseDto,
+  GmailStatusResponseDto,
+  GmailSyncJobResponseDto,
+  GmailSyncJobStatusDto,
+  QueueGmailSyncDto,
+  TriggerSyncDto,
+  UpdateGmailConfigDto,
 } from './dto';
 
 /**
@@ -526,6 +526,8 @@ export class GmailService {
   ): Promise<GmailSyncJobResponseDto> {
     this.logger.log(`Queueing Gmail background sync for user ${userId}`);
 
+    const STALE_JOB_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
     // Validate integration exists
     const integration = await this.getActiveIntegration(userId);
 
@@ -551,9 +553,51 @@ export class GmailService {
     });
 
     if (existingJob) {
+      const isStale =
+        existingJob.createdAt &&
+        existingJob.createdAt.getTime() < Date.now() - STALE_JOB_TIMEOUT_MS;
+
+      // If stale, mark as failed so a new job can proceed
+      if (isStale) {
+        this.logger.warn(
+          `[queueEmailSync] Found stale job ${existingJob.id} (status=${existingJob.status}) for user ${userId}, marking as failed to allow retry.`,
+        );
+
+        await this.prisma.importJob.update({
+          where: { id: existingJob.id },
+          data: {
+            status: 'failed',
+            completedAt: new Date(),
+            errors: [
+              {
+                error: 'Job marked failed due to staleness (timeout)',
+                metadata: existingJob.metadata,
+              },
+            ],
+          },
+        });
+      } else {
+        return {
+          jobId: existingJob.id,
+          status: existingJob.status as 'queued' | 'processing',
+          message: 'A Gmail sync is already in progress',
+        };
+      }
+    }
+
+    // After handling stale, re-check (defensive) to avoid race conditions
+    const stillActiveJob = await this.prisma.importJob.findFirst({
+      where: {
+        userId,
+        type: 'gmail_email_sync',
+        status: { in: ['queued', 'processing'] },
+      },
+    });
+
+    if (stillActiveJob) {
       return {
-        jobId: existingJob.id,
-        status: existingJob.status as 'queued' | 'processing',
+        jobId: stillActiveJob.id,
+        status: stillActiveJob.status as 'queued' | 'processing',
         message: 'A Gmail sync is already in progress',
       };
     }

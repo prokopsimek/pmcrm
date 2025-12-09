@@ -51,6 +51,32 @@ export class GmailSyncJob implements OnModuleInit {
 
   onModuleInit() {
     this.logger.log('GmailSyncJob processor initialized and listening for jobs');
+
+    // Clean up stuck jobs from previous runs (queued/processing but never completed)
+    void this.prisma.importJob
+      .updateMany({
+        where: {
+          type: 'gmail_email_sync',
+          status: { in: ['queued', 'processing'] },
+        },
+        data: {
+          status: 'failed',
+          completedAt: new Date(),
+          errors: [{ error: 'Job marked failed on startup cleanup (likely abandoned).' }],
+        },
+      })
+      .then((result) => {
+        if (result.count > 0) {
+          this.logger.warn(
+            `[GmailSyncJob] Startup cleanup marked ${result.count} stuck jobs as failed`,
+          );
+        }
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[GmailSyncJob] Startup cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      });
   }
 
   /**
