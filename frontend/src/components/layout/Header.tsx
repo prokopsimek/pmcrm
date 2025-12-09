@@ -1,5 +1,6 @@
 'use client';
 
+import { NotificationsPopover } from '@/components/notifications/NotificationsPopover';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,7 +17,6 @@ import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAuth } from '@/hooks';
 import { cn } from '@/lib/utils';
 import {
-    Bell,
     LogOut,
     Menu,
     Plus,
@@ -70,7 +70,7 @@ export function Header({ onMenuClick, sidebarCollapsed }: HeaderProps) {
   return (
     <header
       className={cn(
-        'fixed top-0 right-0 z-30 h-16 border-b border-border bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60 transition-all duration-300',
+        'fixed top-0 right-0 z-30 h-16 border-b border-border bg-card/95 backdrop-blur supports-backdrop-filter:bg-card/60 transition-all duration-300',
         sidebarCollapsed ? 'left-16' : 'left-64'
       )}
     >
@@ -134,13 +134,7 @@ export function Header({ onMenuClick, sidebarCollapsed }: HeaderProps) {
           </Button>
 
           {/* Notifications */}
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-white">
-              3
-            </span>
-            <span className="sr-only">Notifications</span>
-          </Button>
+          <NotificationsPopover />
 
           {/* Theme Toggle */}
           <ThemeToggle />
@@ -213,7 +207,3 @@ export function Header({ onMenuClick, sidebarCollapsed }: HeaderProps) {
     </header>
   );
 }
-
-
-
-
